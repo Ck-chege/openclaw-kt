@@ -53,7 +53,7 @@ class GatewayAuth(private val token: String?, private val password: String?) {
             val valid = when {
                 token != null -> providedToken == token
                 password != null -> providedToken == password
-                else -> true
+                else -> false
             }
             if (!valid) {
                 logger.warn { "Authentication failed for role=$role" }

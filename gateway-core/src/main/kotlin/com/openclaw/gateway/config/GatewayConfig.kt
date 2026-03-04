@@ -8,7 +8,8 @@ data class GatewayConfig(
     val agents: AgentsConfig = AgentsConfig(),
     val tools: ToolsConfig = ToolsConfig(),
     val memory: MemoryConfig = MemoryConfig(),
-    val cron: CronConfig = CronConfig()
+    val cron: CronConfig = CronConfig(),
+    val secrets: SecretsConfig = SecretsConfig()
 )
 
 @Serializable
@@ -41,8 +42,8 @@ data class AgentsConfig(
 
 @Serializable
 data class AgentDefaults(
-    val model: String = "anthropic:claude-sonnet-4-5",
-    val workspace: String = "~/.openclaw/workspace",
+    val model: String = "anthropic:claude-sonnet-4",
+    val workspace: String = "~/.openclawk/workspace",
     val compaction: String = "safeguard",
     val maxConcurrentRuns: Int = 4
 )
@@ -109,10 +110,19 @@ data class AgentToolOverrides(
 data class MemoryConfig(
     val enabled: Boolean = true,
     val provider: String = "openai",
-    val model: String = "text-embedding-3-small"
+    val model: String = "text-embedding-3-small",
+    val ollamaBaseUrl: String = "http://localhost:11434",
+    val chunkSize: Int = 400,
+    val chunkOverlap: Int = 80
 )
 
 @Serializable
 data class CronConfig(
     val enabled: Boolean = true
+)
+
+@Serializable
+data class SecretsConfig(
+    val anthropicApiKey: String? = null,
+    val openaiApiKey: String? = null
 )

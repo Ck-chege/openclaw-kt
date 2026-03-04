@@ -379,7 +379,7 @@ class HoconMapperTest {
             val result = config.toGatewayConfig()
 
             result.agents.defaults.model shouldBe "custom:model"
-            result.agents.defaults.workspace shouldBe "~/.openclaw/workspace"
+            result.agents.defaults.workspace shouldBe "~/.openclawk/workspace"
             result.agents.list shouldBe emptyList()
         }
     }

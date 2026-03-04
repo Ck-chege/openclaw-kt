@@ -32,7 +32,8 @@ fun Config.toGatewayConfig(): GatewayConfig = GatewayConfig(
     agents = if (hasPath("agents")) getConfig("agents").toAgentsConfig() else AgentsConfig(),
     tools = if (hasPath("tools")) getConfig("tools").toToolsConfig() else ToolsConfig(),
     memory = if (hasPath("memory")) getConfig("memory").toMemoryConfig() else MemoryConfig(),
-    cron = if (hasPath("cron")) getConfig("cron").toCronConfig() else CronConfig()
+    cron = if (hasPath("cron")) getConfig("cron").toCronConfig() else CronConfig(),
+    secrets = if (hasPath("secrets")) getConfig("secrets").toSecretsConfig() else SecretsConfig()
 )
 
 fun Config.toGatewaySettings(): GatewaySettings = GatewaySettings(
@@ -122,9 +123,17 @@ fun Config.toAgentToolOverrides(): AgentToolOverrides = AgentToolOverrides(
 fun Config.toMemoryConfig(): MemoryConfig = MemoryConfig(
     enabled = getOrDefault("enabled", MemoryConfig().enabled) { getBoolean(it) },
     provider = getOrDefault("provider", MemoryConfig().provider) { getString(it) },
-    model = getOrDefault("model", MemoryConfig().model) { getString(it) }
+    model = getOrDefault("model", MemoryConfig().model) { getString(it) },
+    ollamaBaseUrl = getOrDefault("ollamaBaseUrl", MemoryConfig().ollamaBaseUrl) { getString(it) },
+    chunkSize = getOrDefault("chunkSize", MemoryConfig().chunkSize) { getInt(it) },
+    chunkOverlap = getOrDefault("chunkOverlap", MemoryConfig().chunkOverlap) { getInt(it) }
 )
 
 fun Config.toCronConfig(): CronConfig = CronConfig(
     enabled = getOrDefault("enabled", CronConfig().enabled) { getBoolean(it) }
+)
+
+fun Config.toSecretsConfig(): SecretsConfig = SecretsConfig(
+    anthropicApiKey = getOrDefault("anthropicApiKey", null) { getString(it) },
+    openaiApiKey = getOrDefault("openaiApiKey", null) { getString(it) }
 )
