@@ -1,0 +1,228 @@
+package com.openclaw.agent.model
+
+import com.openclaw.protocol.identifiers.ModelId
+import io.kotest.matchers.collections.shouldContain
+import io.kotest.matchers.collections.shouldHaveAtLeastSize
+import io.kotest.matchers.shouldBe
+import io.kotest.matchers.shouldNotBe
+import io.kotest.matchers.types.shouldBeInstanceOf
+import io.kotest.matchers.types.shouldBeSameInstanceAs
+import org.junit.jupiter.api.Nested
+import org.junit.jupiter.api.Test
+import org.junit.jupiter.api.assertThrows
+
+class ModelRegistryTest {
+
+    private fun registryWithKeys(vararg keys: Pair<String, String>): ModelRegistry {
+        val keyMap = keys.toMap()
+        return ModelRegistry(apiKeyResolver = { keyMap[it] })
+    }
+
+    private fun registryWithAllKeys(): ModelRegistry =
+        registryWithKeys(
+            "ANTHROPIC_API_KEY" to "test-anthropic-key",
+            "OPENAI_API_KEY" to "test-openai-key"
+        )
+
+    @Nested
+    inner class Resolve {
+
+        @Test
+        fun `resolve known Anthropic model returns correct definition`() {
+            val registry = registryWithAllKeys()
+            val def = registry.resolve(ModelId("anthropic:claude-sonnet-4-5"))
+            def.provider shouldBe "anthropic"
+            def.modelName shouldBe "claude-sonnet-4-5"
+            def.displayName shouldBe "Claude Sonnet 4.5"
+            def.maxContextTokens shouldBe 200_000
+        }
+
+        @Test
+        fun `resolve known OpenAI model returns correct definition`() {
+            val registry = registryWithAllKeys()
+            val def = registry.resolve(ModelId("openai:gpt-4o"))
+            def.provider shouldBe "openai"
+            def.modelName shouldBe "gpt-4o"
+            def.displayName shouldBe "GPT-4o"
+            def.maxContextTokens shouldBe 128_000
+        }
+
+        @Test
+        fun `resolve unknown model throws UnknownModel`() {
+            val registry = registryWithAllKeys()
+            val error = assertThrows<ModelRegistryError.UnknownModel> {
+                registry.resolve(ModelId("anthropic:claude-unknown"))
+            }
+            error.modelId shouldBe ModelId("anthropic:claude-unknown")
+        }
+    }
+
+    @Nested
+    inner class ResolveExecutor {
+
+        @Test
+        fun `resolveExecutor for Anthropic model succeeds with API key`() {
+            val registry = registryWithAllKeys()
+            val executor = registry.resolveExecutor(ModelId("anthropic:claude-sonnet-4-5"))
+            executor shouldNotBe null
+        }
+
+        @Test
+        fun `resolveExecutor for OpenAI model succeeds with API key`() {
+            val registry = registryWithAllKeys()
+            val executor = registry.resolveExecutor(ModelId("openai:gpt-4o"))
+            executor shouldNotBe null
+        }
+
+        @Test
+        fun `resolveExecutor caches same executor for same provider`() {
+            val registry = registryWithAllKeys()
+            val executor1 = registry.resolveExecutor(ModelId("anthropic:claude-sonnet-4-5"))
+            val executor2 = registry.resolveExecutor(ModelId("anthropic:claude-opus-4-6"))
+            executor1 shouldBeSameInstanceAs executor2
+        }
+
+        @Test
+        fun `resolveExecutor missing API key throws MissingApiKey`() {
+            val registry = registryWithKeys() // no keys at all
+            val error = assertThrows<ModelRegistryError.MissingApiKey> {
+                registry.resolveExecutor(ModelId("anthropic:claude-sonnet-4-5"))
+            }
+            error.provider shouldBe "anthropic"
+            error.envVar shouldBe "ANTHROPIC_API_KEY"
+        }
+
+        @Test
+        fun `resolveExecutor unknown model throws UnknownModel`() {
+            val registry = registryWithAllKeys()
+            assertThrows<ModelRegistryError.UnknownModel> {
+                registry.resolveExecutor(ModelId("anthropic:does-not-exist"))
+            }
+        }
+    }
+
+    @Nested
+    inner class ResolveKoogModel {
+
+        @Test
+        fun `resolveKoogModel for Anthropic model returns LLModel`() {
+            val registry = registryWithAllKeys()
+            val def = registry.resolve(ModelId("anthropic:claude-sonnet-4-5"))
+            val llModel = registry.resolveKoogModel(def)
+            llModel shouldNotBe null
+        }
+
+        @Test
+        fun `resolveKoogModel for OpenAI model returns LLModel`() {
+            val registry = registryWithAllKeys()
+            val def = registry.resolve(ModelId("openai:gpt-4o"))
+            val llModel = registry.resolveKoogModel(def)
+            llModel shouldNotBe null
+        }
+
+        @Test
+        fun `resolveKoogModel for unknown provider throws UnknownProvider`() {
+            val registry = registryWithAllKeys()
+            val fakeDef = ModelDefinition(
+                id = ModelId("cohere:command-r"),
+                provider = "cohere",
+                modelName = "command-r",
+                displayName = "Command R"
+            )
+            assertThrows<ModelRegistryError.UnknownProvider> {
+                registry.resolveKoogModel(fakeDef)
+            }
+        }
+    }
+
+    @Nested
+    inner class ListAndRegister {
+
+        @Test
+        fun `list returns all built-in models`() {
+            val registry = registryWithAllKeys()
+            val models = registry.list()
+            models shouldHaveAtLeastSize 4
+            models.map { it.id.raw } shouldContain "anthropic:claude-sonnet-4-5"
+            models.map { it.id.raw } shouldContain "openai:gpt-4o"
+        }
+
+        @Test
+        fun `register custom model adds to catalog`() {
+            val registry = registryWithAllKeys()
+            val custom = ModelDefinition(
+                id = ModelId("anthropic:custom-model"),
+                provider = "anthropic",
+                modelName = "custom-model",
+                displayName = "Custom Model",
+                maxContextTokens = 50_000
+            )
+            registry.register(custom)
+
+            val resolved = registry.resolve(ModelId("anthropic:custom-model"))
+            resolved.displayName shouldBe "Custom Model"
+            resolved.maxContextTokens shouldBe 50_000
+        }
+    }
+
+    @Nested
+    inner class ModelIdParsing {
+
+        @Test
+        fun `ModelId provider extracts prefix correctly`() {
+            ModelId("anthropic:claude-sonnet-4-5").provider shouldBe "anthropic"
+            ModelId("openai:gpt-4o").provider shouldBe "openai"
+        }
+
+        @Test
+        fun `ModelId model extracts name correctly`() {
+            ModelId("anthropic:claude-sonnet-4-5").model shouldBe "claude-sonnet-4-5"
+            ModelId("openai:gpt-4o").model shouldBe "gpt-4o"
+        }
+    }
+
+    @Nested
+    inner class ProviderFactoryTests {
+
+        @Test
+        fun `LLMProvider fromPrefix resolves anthropic`() {
+            LLMProvider.fromPrefix("anthropic") shouldBe LLMProvider.ANTHROPIC
+            LLMProvider.fromPrefix("ANTHROPIC") shouldBe LLMProvider.ANTHROPIC
+        }
+
+        @Test
+        fun `LLMProvider fromPrefix resolves openai`() {
+            LLMProvider.fromPrefix("openai") shouldBe LLMProvider.OPENAI
+        }
+
+        @Test
+        fun `LLMProvider fromPrefix returns null for unknown`() {
+            LLMProvider.fromPrefix("cohere") shouldBe null
+        }
+    }
+
+    @Nested
+    inner class ErrorTypes {
+
+        @Test
+        fun `UnknownModel is a ModelRegistryError`() {
+            val error = ModelRegistryError.UnknownModel(ModelId("test:model"))
+            error.shouldBeInstanceOf<ModelRegistryError>()
+            error.message shouldBe "Unknown model: test:model"
+        }
+
+        @Test
+        fun `UnknownProvider is a ModelRegistryError`() {
+            val error = ModelRegistryError.UnknownProvider("cohere")
+            error.shouldBeInstanceOf<ModelRegistryError>()
+            error.message shouldBe "Unknown provider: cohere"
+        }
+
+        @Test
+        fun `MissingApiKey is a ModelRegistryError`() {
+            val error = ModelRegistryError.MissingApiKey("anthropic", "ANTHROPIC_API_KEY")
+            error.shouldBeInstanceOf<ModelRegistryError>()
+            error.message shouldBe "Missing API key for provider 'anthropic': set environment variable ANTHROPIC_API_KEY"
+        }
+    }
+}
