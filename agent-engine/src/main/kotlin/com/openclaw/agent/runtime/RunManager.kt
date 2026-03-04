@@ -1,7 +1,9 @@
 package com.openclaw.agent.runtime
 
 import ai.koog.agents.core.tools.ToolRegistry
+import com.openclaw.agent.prompt.ToolDescription
 import com.openclaw.agent.workspace.WorkspaceLoader
+import com.openclaw.protocol.identifiers.ChatType
 import com.openclaw.protocol.dto.AgentEvent
 import com.openclaw.protocol.dto.QueueAction
 import com.openclaw.protocol.identifiers.ModelId
@@ -43,14 +45,16 @@ class RunManager(
         workspace: WorkspaceLoader,
         modelId: ModelId? = null,
         channelName: String? = null,
+        chatType: ChatType? = null,
         toolRegistry: ToolRegistry = ToolRegistry.EMPTY,
         skillsXml: String = "",
+        toolDescriptions: List<ToolDescription> = emptyList(),
         onEvent: (suspend (AgentEvent) -> Unit)? = null
     ): Flow<AgentEvent> {
         val mutex = sessionMutexes.getOrPut(sessionKey.raw) { Mutex() }
         val queueChannel = Channel<QueueAction>(Channel.BUFFERED)
 
-        val events = runtime.executeRun(sessionKey, message, workspace, modelId, channelName, toolRegistry, skillsXml)
+        val events = runtime.executeRun(sessionKey, message, workspace, modelId, channelName, chatType, toolRegistry, skillsXml, toolDescriptions)
 
         val job = scope.launch {
             mutex.withLock {

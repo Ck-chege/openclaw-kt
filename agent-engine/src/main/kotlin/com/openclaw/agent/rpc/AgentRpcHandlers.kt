@@ -1,6 +1,7 @@
 package com.openclaw.agent.rpc
 
 import com.openclaw.agent.isolation.AgentResolver
+import com.openclaw.agent.prompt.ToolDescription
 import com.openclaw.agent.runtime.RunManager
 import com.openclaw.gateway.config.AgentsConfig
 import com.openclaw.gateway.config.ToolsConfig
@@ -8,6 +9,7 @@ import com.openclaw.gateway.rpc.RpcRouter
 import com.openclaw.gateway.ws.SessionRegistry
 import com.openclaw.protocol.dto.AgentEvent
 import com.openclaw.protocol.frames.Frame
+import com.openclaw.protocol.identifiers.ChatType
 import com.openclaw.protocol.identifiers.ModelId
 import com.openclaw.protocol.identifiers.SessionKey
 import com.openclaw.skills.SkillLoader
@@ -48,16 +50,28 @@ fun registerAgentHandlers(
         val message = params.requireString("message")
         val modelIdStr = params["model"]?.jsonPrimitive?.contentOrNull
 
+        val chatTypeStr = params["chatType"]?.jsonPrimitive?.contentOrNull
+        val chatType = chatTypeStr?.let {
+            try { ChatType.valueOf(it.uppercase()) } catch (_: IllegalArgumentException) { null }
+        }
+
         val sessionKey = SessionKey(key)
         val resolved = agentResolver.resolve(agentsConfig(), sessionKey.agentId)
 
         val modelId = modelIdStr?.let { ModelId(it) } ?: resolved.modelId
 
         // Build per-agent tool registry using policy pipeline
+        val currentToolsConfig = toolsConfig()
         val agentToolRegistry = toolRegistryFactory?.buildRegistry(
-            toolsConfig(),
+            currentToolsConfig,
             agentToolOverrides = resolved.toolOverrides
         ) ?: ai.koog.agents.core.tools.ToolRegistry.EMPTY
+
+        // Extract tool descriptions for system prompt injection (Zone 1)
+        val toolDescs = toolRegistryFactory?.buildDescriptions(
+            currentToolsConfig,
+            agentToolOverrides = resolved.toolOverrides
+        )?.map { (name, desc) -> ToolDescription(name, desc) } ?: emptyList()
 
         // Build skills snapshot for this workspace
         val skillsXml = skillLoader?.let { loader ->
@@ -70,8 +84,10 @@ fun registerAgentHandlers(
             message = message,
             workspace = resolved.workspace,
             modelId = modelId,
+            chatType = chatType,
             toolRegistry = agentToolRegistry,
             skillsXml = skillsXml,
+            toolDescriptions = toolDescs,
             onEvent = sessionRegistry?.let { registry ->
                 { event: AgentEvent ->
                     val frameEvent = event.toFrameEvent(key)

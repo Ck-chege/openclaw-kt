@@ -9,6 +9,9 @@ import ai.koog.prompt.streaming.StreamFrame
 import com.openclaw.agent.model.ModelRegistry
 import com.openclaw.agent.prompt.PromptAssembler
 import com.openclaw.agent.prompt.PromptContext
+import com.openclaw.agent.prompt.PromptContextDefaults
+import com.openclaw.agent.prompt.ToolDescription
+import com.openclaw.protocol.identifiers.ChatType
 import com.openclaw.agent.strategy.StreamBridge
 import com.openclaw.agent.strategy.buildOpenClawStrategy
 import com.openclaw.agent.workspace.WorkspaceLoader
@@ -36,7 +39,8 @@ private val logger = KotlinLogging.logger {}
  */
 class AgentRuntime(
     private val modelRegistry: ModelRegistry,
-    private val sessionStore: SessionStore? = null
+    private val sessionStore: SessionStore? = null,
+    private val compactionTrigger: CompactionTrigger? = null
 ) {
     /**
      * Execute an agent run. Returns a cold Flow — the run starts on collection.
@@ -53,10 +57,12 @@ class AgentRuntime(
         workspace: WorkspaceLoader,
         modelId: ModelId? = null,
         channelName: String? = null,
+        chatType: ChatType? = null,
         toolRegistry: ToolRegistry = ToolRegistry.EMPTY,
-        skillsXml: String = ""
+        skillsXml: String = "",
+        toolDescriptions: List<ToolDescription> = emptyList()
     ): Flow<AgentEvent> = channelFlow {
-        val effectiveModelId = modelId ?: ModelId("anthropic:claude-sonnet-4-5")
+        val effectiveModelId = modelId ?: ModelId("anthropic:claude-sonnet-4")
         val bridge = StreamBridge()
 
         try {
@@ -69,6 +75,9 @@ class AgentRuntime(
             persistUserMessage(sessionKey, message, channelName)
 
             // 3. Assemble system prompt
+            val sessionType = PromptContextDefaults.deriveSessionType(sessionKey, chatType)
+            val promptMode = PromptContextDefaults.derivePromptMode(sessionType)
+
             val promptContext = PromptContext(
                 soul = workspace.readSoulMd(),
                 agents = workspace.readAgentsMd(),
@@ -78,7 +87,10 @@ class AgentRuntime(
                 identity = workspace.readIdentityMd(),
                 bootstrap = workspace.readBootstrapMd(),
                 heartbeat = workspace.readHeartbeatMd(),
+                toolDescriptions = toolDescriptions,
                 skillsXml = skillsXml,
+                promptMode = promptMode,
+                sessionType = sessionType,
                 channelName = channelName,
                 modelId = effectiveModelId,
                 currentTime = kotlinx.datetime.Instant.fromEpochMilliseconds(
@@ -169,6 +181,18 @@ class AgentRuntime(
 
             // 9. Persist assistant response
             persistAssistantMessage(sessionKey, result, effectiveModelId)
+
+            // 9.5 Check compaction — run silent memory flush if needed
+            compactionTrigger?.let { trigger ->
+                val compactionResult = trigger.checkAndCompact(sessionKey)
+                when (compactionResult) {
+                    is CompactionTriggerResult.Compacted ->
+                        logger.info { "Compaction completed: flushed=${compactionResult.flushed}, outcome=${compactionResult.outcome}" }
+                    is CompactionTriggerResult.FlushFailed ->
+                        logger.warn { "Compaction trigger failed: ${compactionResult.cause.message}" }
+                    CompactionTriggerResult.NotNeeded -> {}
+                }
+            }
 
             // 10. Emit run complete
             val completeEvent = AgentEvent.RunComplete(
