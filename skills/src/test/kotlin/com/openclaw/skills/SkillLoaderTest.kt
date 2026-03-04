@@ -6,6 +6,7 @@ import io.kotest.matchers.shouldBe
 import io.kotest.matchers.string.shouldContain
 import io.kotest.matchers.string.shouldNotContain
 import io.kotest.matchers.string.shouldBeEmpty
+import io.kotest.matchers.comparables.shouldBeLessThanOrEqualTo
 import org.junit.jupiter.api.Nested
 import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.io.TempDir
@@ -292,6 +293,48 @@ class SkillLoaderTest {
             val closingIdx = xml.indexOf("</available_skills>")
             val bodyIdx = xml.indexOf("Always follow these rules.")
             (bodyIdx > closingIdx) shouldBe true
+        }
+    }
+
+    @Nested
+    inner class SkillLimits {
+
+        @Test
+        fun `skills count limited to maxSkillsCount`() {
+            val loader = SkillLoader(maxSkillsCount = 3)
+            val skills = (1..5).map { makeSkillMeta("skill-$it", "Description $it") }
+
+            val xml = loader.buildPromptXml(skills)
+
+            xml shouldContain "name=\"skill-1\""
+            xml shouldContain "name=\"skill-2\""
+            xml shouldContain "name=\"skill-3\""
+            xml shouldNotContain "name=\"skill-4\""
+            xml shouldNotContain "name=\"skill-5\""
+        }
+
+        @Test
+        fun `XML size capped to skillsBlockCharLimit`() {
+            val loader = SkillLoader(skillsBlockCharLimit = 100)
+            val skills = (1..10).map { makeSkillMeta("skill-$it", "A longer description to inflate XML size number $it") }
+
+            val xml = loader.buildPromptXml(skills)
+
+            xml.length shouldBeLessThanOrEqualTo 100
+        }
+
+        @Test
+        fun `skills within limits are unchanged`() {
+            val loader = SkillLoader(maxSkillsCount = 10)
+            val skills = (1..3).map { makeSkillMeta("skill-$it", "Description $it") }
+
+            val xml = loader.buildPromptXml(skills)
+
+            xml shouldContain "name=\"skill-1\""
+            xml shouldContain "name=\"skill-2\""
+            xml shouldContain "name=\"skill-3\""
+            xml shouldContain "<available_skills>"
+            xml shouldContain "</available_skills>"
         }
     }
 }

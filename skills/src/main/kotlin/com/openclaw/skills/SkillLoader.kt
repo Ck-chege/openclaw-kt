@@ -18,15 +18,36 @@ private val logger = KotlinLogging.logger {}
  * Always-on skills have their body appended after the XML block.
  */
 class SkillLoader(
-    private val scanner: SkillScanner = SkillScanner()
+    private val scanner: SkillScanner = SkillScanner(),
+    private val maxSkillsCount: Int = 150,
+    private val skillsBlockCharLimit: Int = 30_000
 ) {
     /**
      * Build the compact XML representation of available skills.
+     * Enforces maxSkillsCount and skillsBlockCharLimit.
      * Returns empty string for an empty list.
      */
     fun buildPromptXml(skills: List<SkillMeta>): String {
         if (skills.isEmpty()) return ""
 
+        val capped = if (skills.size > maxSkillsCount) {
+            logger.info { "Capping skills from ${skills.size} to $maxSkillsCount" }
+            skills.take(maxSkillsCount)
+        } else {
+            skills
+        }
+
+        val xml = buildRawXml(capped)
+
+        return if (xml.length > skillsBlockCharLimit) {
+            logger.info { "Truncating skills XML from ${xml.length} to $skillsBlockCharLimit chars" }
+            xml.take(skillsBlockCharLimit)
+        } else {
+            xml
+        }
+    }
+
+    private fun buildRawXml(skills: List<SkillMeta>): String {
         return buildString {
             appendLine("<available_skills>")
             for (skill in skills) {

@@ -212,7 +212,7 @@ class SkillScannerTest {
             val dirs = SkillScanner.defaultDirectories(workspace)
             dirs shouldHaveSize 2
             dirs[0] shouldBe workspace.resolve("skills")
-            dirs[1] shouldBe Path.of(System.getProperty("user.home"), ".openclaw", "skills")
+            dirs[1] shouldBe Path.of(System.getProperty("user.home"), ".openclawk", "skills")
         }
 
         @Test

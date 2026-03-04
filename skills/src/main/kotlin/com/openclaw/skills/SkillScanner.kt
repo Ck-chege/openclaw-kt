@@ -87,7 +87,7 @@ class SkillScanner(
             bundledSkillsPath: Path? = null
         ): List<Path> = buildList {
             add(workspacePath.resolve("skills"))
-            add(Path.of(System.getProperty("user.home"), ".openclaw", "skills"))
+            add(Path.of(System.getProperty("user.home"), ".openclawk", "skills"))
             if (bundledSkillsPath != null) {
                 add(bundledSkillsPath)
             }
