@@ -35,6 +35,7 @@ include(":tools:tools-api")
 include(":tools:exec")
 include(":tools:filesystem")
 include(":tools:web")
+include(":tools:memory-tools")
 
 // Feature modules
 include(":skills")

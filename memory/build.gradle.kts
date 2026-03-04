@@ -5,6 +5,7 @@ plugins {
 
 dependencies {
     implementation(project(":protocol"))
+    implementation(project(":gateway-core"))
 
     implementation(libs.kotlinx.coroutines.core)
     implementation(libs.kotlinx.serialization.json)
@@ -18,4 +19,6 @@ dependencies {
 
     testImplementation(libs.bundles.kotest)
     testImplementation(libs.kotlinx.coroutines.test)
+    testImplementation(libs.ktor.client.mock)
+    testRuntimeOnly("org.junit.jupiter:junit-jupiter-engine:5.12.0")
 }
