@@ -45,19 +45,19 @@ class WorkspaceBootstrapTest {
         @Test
         fun `creates openclaw state directory`() {
             bootstrap().ensureWorkspace()
-            tempDir.resolve(".openclaw").exists() shouldBe true
+            tempDir.resolve(".openclawk").exists() shouldBe true
         }
 
         @Test
         fun `creates workspace-state json`() {
             bootstrap().ensureWorkspace()
-            tempDir.resolve(".openclaw/workspace-state.json").exists() shouldBe true
+            tempDir.resolve(".openclawk/workspace-state.json").exists() shouldBe true
         }
 
         @Test
         fun `state file contains BOOTSTRAP_SEEDED phase`() {
             bootstrap().ensureWorkspace()
-            val content = tempDir.resolve(".openclaw/workspace-state.json").readText()
+            val content = tempDir.resolve(".openclawk/workspace-state.json").readText()
             content shouldContain "BOOTSTRAP_SEEDED"
         }
 
@@ -267,8 +267,8 @@ class WorkspaceBootstrapTest {
 
         @Test
         fun `malformed JSON falls back to NEW`() {
-            tempDir.resolve(".openclaw").createDirectories()
-            tempDir.resolve(".openclaw/workspace-state.json").writeText("not valid json{{{")
+            tempDir.resolve(".openclawk").createDirectories()
+            tempDir.resolve(".openclawk/workspace-state.json").writeText("not valid json{{{")
 
             val loaded = bootstrap().loadState()
             loaded shouldBe WorkspaceState()
@@ -283,8 +283,8 @@ class WorkspaceBootstrapTest {
 
         @Test
         fun `empty state file falls back to NEW`() {
-            tempDir.resolve(".openclaw").createDirectories()
-            tempDir.resolve(".openclaw/workspace-state.json").writeText("")
+            tempDir.resolve(".openclawk").createDirectories()
+            tempDir.resolve(".openclawk/workspace-state.json").writeText("")
 
             val loaded = bootstrap().loadState()
             loaded shouldBe WorkspaceState()
@@ -307,6 +307,64 @@ class WorkspaceBootstrapTest {
         fun `nonexistent template returns null`() {
             val content = WorkspaceBootstrap.loadTemplate("NONEXISTENT.md")
             content shouldBe null
+        }
+    }
+
+    @Nested
+    inner class MarkOnboardingComplete {
+
+        @Test
+        fun `marks NEW workspace as complete`() {
+            val bs = bootstrap()
+            bs.ensureWorkspace()
+            val state = bs.markOnboardingComplete()
+            state.phase shouldBe OnboardingPhase.ONBOARDING_COMPLETE
+            state.onboardingCompletedAt.shouldNotBeNull()
+        }
+
+        @Test
+        fun `marks BOOTSTRAP_SEEDED as complete`() {
+            val bs = bootstrap()
+            bs.ensureWorkspace() // -> BOOTSTRAP_SEEDED
+            val state = bs.markOnboardingComplete()
+            state.phase shouldBe OnboardingPhase.ONBOARDING_COMPLETE
+        }
+
+        @Test
+        fun `already complete is a no-op`() {
+            val bs = bootstrap()
+            tempDir.resolve("SOUL.md").writeText("A".repeat(100))
+            bs.ensureWorkspace() // -> ONBOARDING_COMPLETE
+            val state = bs.markOnboardingComplete()
+            state.phase shouldBe OnboardingPhase.ONBOARDING_COMPLETE
+        }
+
+        @Test
+        fun `persists the complete state`() {
+            val bs = bootstrap()
+            bs.ensureWorkspace()
+            bs.markOnboardingComplete()
+
+            val reloaded = bootstrap().loadState()
+            reloaded.phase shouldBe OnboardingPhase.ONBOARDING_COMPLETE
+        }
+    }
+
+    @Nested
+    inner class CurrentState {
+
+        @Test
+        fun `returns current state without transitions`() {
+            val bs = bootstrap()
+            bs.ensureWorkspace() // -> BOOTSTRAP_SEEDED
+            val state = bs.currentState()
+            state.phase shouldBe OnboardingPhase.BOOTSTRAP_SEEDED
+        }
+
+        @Test
+        fun `returns NEW for fresh workspace`() {
+            val state = bootstrap().currentState()
+            state.phase shouldBe OnboardingPhase.NEW
         }
     }
 

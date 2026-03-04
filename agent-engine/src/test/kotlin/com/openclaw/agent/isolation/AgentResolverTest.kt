@@ -20,7 +20,7 @@ class AgentResolverTest {
             val config = AgentsConfig()
             val agent = resolver.resolve(config)
             agent.agentId.raw shouldBe "default"
-            agent.modelId.raw shouldBe "anthropic:claude-sonnet-4-5"
+            agent.modelId.raw shouldBe "anthropic:claude-sonnet-4"
             agent.toolProfile shouldBe "full"
         }
 
@@ -72,7 +72,7 @@ class AgentResolverTest {
                 list = listOf(AgentEntry(id = "known"))
             )
             val agent = resolver.resolve(config, "unknown")
-            agent.modelId.raw shouldBe "anthropic:claude-sonnet-4-5"
+            agent.modelId.raw shouldBe "anthropic:claude-sonnet-4"
         }
     }
 
@@ -92,7 +92,7 @@ class AgentResolverTest {
         fun `resolveForChannel with no match uses defaults`() {
             val config = AgentsConfig()
             val agent = resolver.resolveForChannel(config, "unknown-channel")
-            agent.modelId.raw shouldBe "anthropic:claude-sonnet-4-5"
+            agent.modelId.raw shouldBe "anthropic:claude-sonnet-4"
         }
     }
 }

@@ -1,5 +1,7 @@
 package com.openclaw.agent.workspace
 
+import com.openclaw.agent.prompt.PromptLimits
+import com.openclaw.agent.prompt.TextTruncation
 import io.github.oshai.kotlinlogging.KotlinLogging
 import java.nio.file.Path
 import kotlin.io.path.exists
@@ -9,7 +11,10 @@ import kotlin.io.path.readText
 
 private val logger = KotlinLogging.logger {}
 
-class WorkspaceLoader(val workspacePath: Path) {
+class WorkspaceLoader(
+    val workspacePath: Path,
+    private val limits: PromptLimits = PromptLimits()
+) {
 
     companion object {
         const val MAX_FILE_SIZE_BYTES: Long = 2 * 1024 * 1024
@@ -47,7 +52,13 @@ class WorkspaceLoader(val workspacePath: Path) {
             return ""
         }
         return try {
-            file.readText().trim()
+            val content = file.readText().trim()
+            if (content.length > limits.perFileCharLimit) {
+                logger.info { "Truncating $filename: ${content.length} chars → ${limits.perFileCharLimit} chars" }
+                TextTruncation.truncateWithMarkers(content, limits.perFileCharLimit)
+            } else {
+                content
+            }
         } catch (e: Exception) {
             logger.warn(e) { "Failed to read workspace file: $file" }
             ""

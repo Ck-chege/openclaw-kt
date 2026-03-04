@@ -18,14 +18,14 @@ class AgentsListToolTest {
             val config = AgentsConfig(
                 defaults = AgentDefaults(
                     model = "anthropic:claude-sonnet-4-5",
-                    workspace = "~/.openclaw/workspace"
+                    workspace = "~/.openclawk/workspace"
                 )
             )
             val tool = AgentsListTool { config }
 
             val result = tool.execute(AgentsListTool.Args())
 
-            result shouldContain "Default: model=anthropic:claude-sonnet-4-5, workspace=~/.openclaw/workspace"
+            result shouldContain "Default: model=anthropic:claude-sonnet-4-5, workspace=~/.openclawk/workspace"
             result shouldContain "No additional agents configured"
         }
 

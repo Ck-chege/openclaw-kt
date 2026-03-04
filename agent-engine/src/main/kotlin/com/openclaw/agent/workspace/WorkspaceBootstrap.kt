@@ -32,7 +32,7 @@ class WorkspaceBootstrap(
     private val workspacePath: Path,
     private val clock: Clock = Clock.System
 ) {
-    private val stateDir: Path = workspacePath.resolve(".openclaw")
+    private val stateDir: Path = workspacePath.resolve(".openclawk")
     private val stateFile: Path = stateDir.resolve("workspace-state.json")
 
     companion object {
@@ -56,6 +56,30 @@ class WorkspaceBootstrap(
                 ?.readText()
         }
     }
+
+    /**
+     * Marks onboarding as complete. Called by setup.complete RPC handler
+     * after the user has configured required values (API keys, auth token).
+     *
+     * Returns the updated state, or the current state if already complete.
+     */
+    fun markOnboardingComplete(): WorkspaceState {
+        val state = loadState()
+        if (state.phase == OnboardingPhase.ONBOARDING_COMPLETE) return state
+
+        val completeState = state.copy(
+            phase = OnboardingPhase.ONBOARDING_COMPLETE,
+            onboardingCompletedAt = clock.now()
+        )
+        saveState(completeState)
+        logger.info { "Onboarding marked complete via setup" }
+        return completeState
+    }
+
+    /**
+     * Returns the current workspace state without triggering any transitions.
+     */
+    fun currentState(): WorkspaceState = loadState()
 
     /**
      * Ensure workspace is set up. Called at application startup.

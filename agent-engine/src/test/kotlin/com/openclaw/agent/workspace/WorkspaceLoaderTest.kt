@@ -1,5 +1,6 @@
 package com.openclaw.agent.workspace
 
+import com.openclaw.agent.prompt.PromptLimits
 import io.kotest.matchers.shouldBe
 import io.kotest.matchers.string.shouldContain
 import org.junit.jupiter.api.Nested
@@ -242,7 +243,9 @@ class WorkspaceLoaderTest {
             val exactSize = 2 * 1024 * 1024
             val content = "A".repeat(exactSize)
             tempDir.resolve("SOUL.md").writeText(content)
-            val loader = WorkspaceLoader(tempDir)
+            // Use a high perFileCharLimit so the 2MB byte guard is tested in isolation
+            val limits = PromptLimits(perFileCharLimit = Int.MAX_VALUE)
+            val loader = WorkspaceLoader(tempDir, limits)
             loader.readSoulMd() shouldBe content
         }
 
@@ -275,6 +278,55 @@ class WorkspaceLoaderTest {
         fun `Path readHeartbeatMd extension works`() {
             tempDir.resolve("HEARTBEAT.md").writeText("Heartbeat ext test")
             tempDir.readHeartbeatMd() shouldBe "Heartbeat ext test"
+        }
+    }
+
+    @Nested
+    inner class PerFileTruncation {
+
+        @Test
+        fun `file under perFileCharLimit is read normally`() {
+            val content = "A".repeat(100)
+            tempDir.resolve("SOUL.md").writeText(content)
+            val loader = WorkspaceLoader(tempDir) // default limits: perFileCharLimit = 20_000
+            loader.readSoulMd() shouldBe content
+        }
+
+        @Test
+        fun `file exceeding perFileCharLimit is truncated with markers`() {
+            val content = "B".repeat(500)
+            val limits = PromptLimits(perFileCharLimit = 200)
+            tempDir.resolve("SOUL.md").writeText(content)
+            val loader = WorkspaceLoader(tempDir, limits)
+            val result = loader.readSoulMd()
+            result shouldContain "content truncated"
+            assert(result.length <= 200) {
+                "Expected truncated result to be <= 200 chars but was ${result.length}"
+            }
+        }
+
+        @Test
+        fun `oversized file still blocked by 2MB guard`() {
+            val overSize = 2 * 1024 * 1024 + 1
+            val content = ByteArray(overSize) { 65 } // 'A' bytes
+            tempDir.resolve("SOUL.md").writeBytes(content)
+            // Even with generous per-file char limit, 2MB guard returns empty
+            val limits = PromptLimits(perFileCharLimit = Int.MAX_VALUE)
+            val loader = WorkspaceLoader(tempDir, limits)
+            loader.readSoulMd() shouldBe ""
+        }
+
+        @Test
+        fun `custom limits are respected`() {
+            val content = "C".repeat(100)
+            val limits = PromptLimits(perFileCharLimit = 50)
+            tempDir.resolve("SOUL.md").writeText(content)
+            val loader = WorkspaceLoader(tempDir, limits)
+            val result = loader.readSoulMd()
+            result shouldContain "content truncated"
+            assert(result.length <= 50) {
+                "Expected truncated result to be <= 50 chars but was ${result.length}"
+            }
         }
     }
 }
