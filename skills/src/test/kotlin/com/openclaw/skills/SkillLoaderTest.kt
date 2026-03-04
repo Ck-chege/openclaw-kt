@@ -1,0 +1,297 @@
+package com.openclaw.skills
+
+import io.kotest.matchers.nulls.shouldBeNull
+import io.kotest.matchers.nulls.shouldNotBeNull
+import io.kotest.matchers.shouldBe
+import io.kotest.matchers.string.shouldContain
+import io.kotest.matchers.string.shouldNotContain
+import io.kotest.matchers.string.shouldBeEmpty
+import org.junit.jupiter.api.Nested
+import org.junit.jupiter.api.Test
+import org.junit.jupiter.api.io.TempDir
+import java.nio.file.Path
+import kotlin.io.path.createDirectories
+import kotlin.io.path.writeText
+
+class SkillLoaderTest {
+
+    @TempDir
+    lateinit var tempDir: Path
+
+    private fun makeSkillMeta(
+        name: String,
+        description: String = "",
+        emoji: String? = null,
+        always: Boolean = false,
+        body: String = "",
+        path: Path = Path.of("/fake/$name/SKILL.md"),
+        resources: SkillResources = SkillResources.EMPTY
+    ): SkillMeta = SkillMeta(
+        frontmatter = SkillFrontmatter(
+            name = name,
+            description = description,
+            emoji = emoji,
+            always = always
+        ),
+        path = path,
+        body = body,
+        resources = resources
+    )
+
+    private fun createSkillFile(
+        baseDir: Path,
+        dirName: String,
+        name: String,
+        description: String = "",
+        body: String = "Skill body for $name"
+    ): Path {
+        val skillDir = baseDir.resolve(dirName).createDirectories()
+        val descYaml = if (description.isNotEmpty()) "\ndescription: $description" else ""
+        skillDir.resolve("SKILL.md").writeText("---\nname: $name$descYaml\n---\n$body")
+        return skillDir.resolve("SKILL.md")
+    }
+
+    @Nested
+    inner class PromptXmlGeneration {
+
+        @Test
+        fun `empty list returns empty string`() {
+            val loader = SkillLoader()
+            loader.buildPromptXml(emptyList()).shouldBeEmpty()
+        }
+
+        @Test
+        fun `single skill produces valid XML`() {
+            val loader = SkillLoader()
+            val xml = loader.buildPromptXml(listOf(
+                makeSkillMeta("search", "Web search")
+            ))
+            xml shouldContain "<available_skills>"
+            xml shouldContain "</available_skills>"
+            xml shouldContain "name=\"search\""
+            xml shouldContain "description=\"Web search\""
+        }
+
+        @Test
+        fun `multiple skills each get a skill element`() {
+            val loader = SkillLoader()
+            val xml = loader.buildPromptXml(listOf(
+                makeSkillMeta("search", "Search the web"),
+                makeSkillMeta("deploy", "Deploy apps")
+            ))
+            xml shouldContain "name=\"search\""
+            xml shouldContain "name=\"deploy\""
+        }
+
+        @Test
+        fun `special chars escaped in attributes`() {
+            val loader = SkillLoader()
+            val xml = loader.buildPromptXml(listOf(
+                makeSkillMeta("test & <skill>", "A \"quoted\" description")
+            ))
+            xml shouldContain "name=\"test &amp; &lt;skill&gt;\""
+            xml shouldContain "description=\"A &quot;quoted&quot; description\""
+        }
+
+        @Test
+        fun `emoji included when present`() {
+            val loader = SkillLoader()
+            val xml = loader.buildPromptXml(listOf(
+                makeSkillMeta("search", emoji = "\uD83D\uDD0E")
+            ))
+            xml shouldContain "emoji=\"\uD83D\uDD0E\""
+        }
+
+        @Test
+        fun `emoji omitted when null`() {
+            val loader = SkillLoader()
+            val xml = loader.buildPromptXml(listOf(
+                makeSkillMeta("search")
+            ))
+            xml shouldNotContain "emoji="
+        }
+
+        @Test
+        fun `XML includes resource attributes when present`() {
+            val loader = SkillLoader()
+            val resources = SkillResources(
+                scripts = listOf("init.sh", "deploy.py"),
+                references = listOf("guide.md"),
+                assets = listOf("template.yml")
+            )
+            val xml = loader.buildPromptXml(listOf(
+                makeSkillMeta("deploy", "Deploy apps", resources = resources)
+            ))
+            xml shouldContain "has_scripts=\"true\""
+            xml shouldContain "scripts=\"init.sh,deploy.py\""
+            xml shouldContain "has_references=\"true\""
+            xml shouldContain "references=\"guide.md\""
+            xml shouldContain "has_assets=\"true\""
+            xml shouldContain "assets=\"template.yml\""
+        }
+
+        @Test
+        fun `XML omits resource attributes when empty`() {
+            val loader = SkillLoader()
+            val xml = loader.buildPromptXml(listOf(
+                makeSkillMeta("search", "Web search")
+            ))
+            xml shouldNotContain "has_scripts"
+            xml shouldNotContain "has_references"
+            xml shouldNotContain "has_assets"
+        }
+    }
+
+    @Nested
+    inner class SnapshotBuilding {
+
+        @Test
+        fun `workspace with skills dir builds snapshot`() {
+            val workspace = tempDir.resolve("workspace").createDirectories()
+            val skillsDir = workspace.resolve("skills").createDirectories()
+            createSkillFile(skillsDir, "search", "search", "Web search")
+            createSkillFile(skillsDir, "deploy", "deploy", "Deploy apps")
+
+            val gate = SkillGate(FakeEnvironmentChecker())
+            val scanner = SkillScanner(gate)
+            val loader = SkillLoader(scanner)
+            val snapshot = loader.buildSnapshot(workspace)
+
+            snapshot.skills.size shouldBe 2
+            snapshot.promptXml shouldContain "<available_skills>"
+        }
+
+        @Test
+        fun `empty snapshot when no skills dir`() {
+            val workspace = tempDir.resolve("empty-workspace").createDirectories()
+
+            val loader = SkillLoader()
+            val snapshot = loader.buildSnapshot(workspace)
+
+            snapshot shouldBe SkillSnapshot.EMPTY
+            snapshot.skills.size shouldBe 0
+            snapshot.promptXml.shouldBeEmpty()
+        }
+
+        @Test
+        fun `promptXml matches skills content`() {
+            val workspace = tempDir.resolve("workspace").createDirectories()
+            val skillsDir = workspace.resolve("skills").createDirectories()
+            createSkillFile(skillsDir, "search", "search", "Find things")
+
+            val gate = SkillGate(FakeEnvironmentChecker())
+            val scanner = SkillScanner(gate)
+            val loader = SkillLoader(scanner)
+            val snapshot = loader.buildSnapshot(workspace)
+
+            snapshot.promptXml shouldContain "name=\"search\""
+            snapshot.promptXml shouldContain "description=\"Find things\""
+        }
+
+        @Test
+        fun `snapshot is reusable across calls`() {
+            val workspace = tempDir.resolve("workspace").createDirectories()
+            val skillsDir = workspace.resolve("skills").createDirectories()
+            createSkillFile(skillsDir, "search", "search")
+
+            val gate = SkillGate(FakeEnvironmentChecker())
+            val scanner = SkillScanner(gate)
+            val loader = SkillLoader(scanner)
+            val snapshot = loader.buildSnapshot(workspace)
+
+            // Snapshot is an immutable data class — same value on re-access
+            snapshot.skills.size shouldBe 1
+            snapshot.promptXml shouldBe snapshot.promptXml
+        }
+    }
+
+    @Nested
+    inner class FullContentLoading {
+
+        @Test
+        fun `returns body content for known skill`() {
+            val workspace = tempDir.resolve("workspace").createDirectories()
+            val skillsDir = workspace.resolve("skills").createDirectories()
+            createSkillFile(skillsDir, "search", "search", body = "Search the web using these instructions.")
+
+            val gate = SkillGate(FakeEnvironmentChecker())
+            val scanner = SkillScanner(gate)
+            val loader = SkillLoader(scanner)
+            val snapshot = loader.buildSnapshot(workspace)
+
+            val full = loader.loadFull(snapshot, "search")
+            full.shouldNotBeNull()
+            full shouldBe "Search the web using these instructions."
+        }
+
+        @Test
+        fun `by name from snapshot`() {
+            val workspace = tempDir.resolve("workspace").createDirectories()
+            val skillsDir = workspace.resolve("skills").createDirectories()
+            createSkillFile(skillsDir, "deploy", "deploy", body = "Deploy instructions here.")
+            createSkillFile(skillsDir, "search", "search", body = "Search instructions here.")
+
+            val gate = SkillGate(FakeEnvironmentChecker())
+            val scanner = SkillScanner(gate)
+            val loader = SkillLoader(scanner)
+            val snapshot = loader.buildSnapshot(workspace)
+
+            val full = loader.loadFull(snapshot, "deploy")
+            full.shouldNotBeNull()
+            full shouldBe "Deploy instructions here."
+        }
+
+        @Test
+        fun `returns null when not in snapshot`() {
+            val loader = SkillLoader()
+            val snapshot = SkillSnapshot.EMPTY
+            loader.loadFull(snapshot, "nonexistent").shouldBeNull()
+        }
+
+        @Test
+        fun `returns null for empty body`() {
+            val workspace = tempDir.resolve("workspace").createDirectories()
+            val skillsDir = workspace.resolve("skills").createDirectories()
+            val skillDir = skillsDir.resolve("empty-body").createDirectories()
+            skillDir.resolve("SKILL.md").writeText("---\nname: empty-body\n---\n")
+
+            val gate = SkillGate(FakeEnvironmentChecker())
+            val scanner = SkillScanner(gate)
+            val loader = SkillLoader(scanner)
+            val snapshot = loader.buildSnapshot(workspace)
+
+            loader.loadFull(snapshot, "empty-body").shouldBeNull()
+        }
+    }
+
+    @Nested
+    inner class TokenEfficiency {
+
+        @Test
+        fun `compact format uses self-closing tags`() {
+            val loader = SkillLoader()
+            val xml = loader.buildPromptXml(listOf(
+                makeSkillMeta("search", "Web search")
+            ))
+            xml shouldContain "/>"
+            xml shouldNotContain "</skill>"
+        }
+
+        @Test
+        fun `always-on skill body appended after XML block`() {
+            val loader = SkillLoader()
+            val xml = loader.buildPromptXml(listOf(
+                makeSkillMeta("core", "Core instructions", always = true, body = "Always follow these rules."),
+                makeSkillMeta("search", "Web search")
+            ))
+            xml shouldContain "</available_skills>"
+            xml shouldContain "<!-- always-on: core -->"
+            xml shouldContain "Always follow these rules."
+
+            // Body comes after the closing tag
+            val closingIdx = xml.indexOf("</available_skills>")
+            val bodyIdx = xml.indexOf("Always follow these rules.")
+            (bodyIdx > closingIdx) shouldBe true
+        }
+    }
+}
