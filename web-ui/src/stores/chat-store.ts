@@ -4,8 +4,10 @@ import type {
   ToolCallInfo,
   TokenUsage,
   SessionMessage,
+  ApprovalRequest,
 } from '@/types/protocol';
 import { GatewayClient } from '@/lib/gateway-client';
+import { notify } from '@/lib/notifications';
 
 const DEFAULT_SESSION_KEY = 'main:main:*:main';
 
@@ -14,11 +16,13 @@ interface ChatStore {
   messages: ChatMessage[];
   isStreaming: boolean;
   error: string | null;
+  pendingApprovals: number;
 
   setActiveSession: (key: string) => void;
   loadHistory: (client: GatewayClient) => Promise<void>;
-  sendMessage: (client: GatewayClient, text: string) => Promise<void>;
+  sendMessage: (client: GatewayClient, text: string, modelId?: string) => Promise<void>;
   stopAgent: (client: GatewayClient) => Promise<void>;
+  respondToApproval: (client: GatewayClient, requestId: string, approved: boolean) => Promise<void>;
   clearMessages: () => void;
   registerEventHandlers: (client: GatewayClient) => () => void;
 }
@@ -73,6 +77,7 @@ export const useChatStore = create<ChatStore>((set, get) => ({
   messages: [],
   isStreaming: false,
   error: null,
+  pendingApprovals: 0,
 
   setActiveSession: (key: string) => {
     set({ activeSessionKey: key, messages: [], isStreaming: false, error: null });
@@ -93,7 +98,7 @@ export const useChatStore = create<ChatStore>((set, get) => ({
     }
   },
 
-  sendMessage: async (client: GatewayClient, text: string) => {
+  sendMessage: async (client: GatewayClient, text: string, modelId?: string) => {
     const { activeSessionKey, messages } = get();
     const userMsg: ChatMessage = {
       id: crypto.randomUUID(),
@@ -117,10 +122,12 @@ export const useChatStore = create<ChatStore>((set, get) => ({
     });
 
     try {
-      const res = await client.request('agent.run', {
+      const params: Record<string, string> = {
         key: activeSessionKey,
         message: text,
-      });
+      };
+      if (modelId) params.model = modelId;
+      const res = await client.request('agent.run', params);
       // Update model info from response
       if (res.model) {
         set((state) => ({
@@ -151,8 +158,23 @@ export const useChatStore = create<ChatStore>((set, get) => ({
     }
   },
 
+  respondToApproval: async (client: GatewayClient, requestId: string, approved: boolean) => {
+    try {
+      await client.request('exec.approval.respond', { requestId, approved });
+    } catch { /* ignore */ }
+    set((state) => {
+      const messages = state.messages.map((m) =>
+        m.approval?.requestId === requestId
+          ? { ...m, approval: { ...m.approval!, status: (approved ? 'approved' : 'denied') as const } }
+          : m
+      );
+      const pendingApprovals = messages.filter((m) => m.approval?.status === 'pending').length;
+      return { messages, pendingApprovals };
+    });
+  },
+
   clearMessages: () => {
-    set({ messages: [], isStreaming: false, error: null });
+    set({ messages: [], isStreaming: false, error: null, pendingApprovals: 0 });
   },
 
   registerEventHandlers: (client: GatewayClient) => {
@@ -240,11 +262,40 @@ export const useChatStore = create<ChatStore>((set, get) => ({
       });
     };
 
+    const handleApproval = (payload: Record<string, unknown>) => {
+      const approval: ApprovalRequest = {
+        requestId: payload.requestId as string,
+        toolName: payload.toolName as string,
+        args: (payload.args as Record<string, unknown>) || {},
+        sessionKey: payload.key as string,
+        agentId: payload.agentId as string | undefined,
+        status: 'pending',
+        timeoutMs: payload.timeoutMs as number | undefined,
+        requestedAt: new Date().toISOString(),
+      };
+
+      const approvalMsg: ChatMessage = {
+        id: `approval-${approval.requestId}`,
+        role: 'approval',
+        content: '',
+        timestamp: approval.requestedAt,
+        approval,
+      };
+
+      set((state) => ({
+        messages: [...state.messages, approvalMsg],
+        pendingApprovals: state.pendingApprovals + 1,
+      }));
+
+      notify.warning(`Approval required: ${approval.toolName}`);
+    };
+
     client.on('agent.token', handleToken);
     client.on('agent.tool.start', handleToolStart);
     client.on('agent.tool.result', handleToolResult);
     client.on('agent.complete', handleComplete);
     client.on('agent.error', handleError);
+    client.on('exec.approval.requested', handleApproval);
 
     return () => {
       client.off('agent.token', handleToken);
@@ -252,6 +303,7 @@ export const useChatStore = create<ChatStore>((set, get) => ({
       client.off('agent.tool.result', handleToolResult);
       client.off('agent.complete', handleComplete);
       client.off('agent.error', handleError);
+      client.off('exec.approval.requested', handleApproval);
     };
   },
 }));

@@ -17,6 +17,8 @@ export class GatewayClient {
   private reconnectAttempt = 0;
   private reconnectTimer: ReturnType<typeof setTimeout> | null = null;
   private _wsSessionId: string | null = null;
+  private _setupRequired = false;
+  private _onboardingPhase: string | null = null;
   private _url: string;
   private _token?: string;
   private _shouldReconnect = false;
@@ -28,6 +30,14 @@ export class GatewayClient {
 
   get wsSessionId() {
     return this._wsSessionId;
+  }
+
+  get setupRequired() {
+    return this._setupRequired;
+  }
+
+  get onboardingPhase() {
+    return this._onboardingPhase;
   }
 
   get isConnected() {
@@ -120,6 +130,8 @@ export class GatewayClient {
       this.pending.set(helloId, {
         resolve: (payload) => {
           this._wsSessionId = payload.sessionId as string;
+          this._setupRequired = (payload.setupRequired as boolean) ?? false;
+          this._onboardingPhase = (payload.onboardingPhase as string) ?? null;
           this.notifyConnection('connected');
         },
         reject: () => {
@@ -142,6 +154,8 @@ export class GatewayClient {
 
     this.ws.onclose = () => {
       this._wsSessionId = null;
+      this._setupRequired = false;
+      this._onboardingPhase = null;
       this.rejectAllPending('Connection closed');
       this.notifyConnection('disconnected');
       if (this._shouldReconnect) {

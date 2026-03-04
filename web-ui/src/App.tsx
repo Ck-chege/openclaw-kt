@@ -1,10 +1,11 @@
-import { Layout } from '@/components/Layout';
+import { RouterProvider } from 'react-router-dom';
 import { TooltipProvider } from '@/components/ui/tooltip';
+import { router } from '@/router';
 
 export default function App() {
   return (
-    <TooltipProvider>
-      <Layout />
+    <TooltipProvider delayDuration={300}>
+      <RouterProvider router={router} />
     </TooltipProvider>
   );
 }

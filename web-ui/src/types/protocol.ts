@@ -28,6 +28,8 @@ export type Frame = FrameRequest | FrameResponse | FrameEvent;
 export interface HelloPayload {
   sessionId: string;
   message: string;
+  setupRequired?: boolean;
+  onboardingPhase?: string;
 }
 
 export interface AgentRunPayload {
@@ -45,6 +47,24 @@ export interface AgentStatusPayload {
   key: string;
   isRunning: boolean;
   elapsedMs: number;
+}
+
+// Setup payloads
+
+export interface SetupStatusPayload {
+  setupRequired: boolean;
+  onboardingPhase: string;
+  hasAnthropicKey: boolean;
+  hasOpenaiKey: boolean;
+  hasAuthToken: boolean;
+  defaultModel: string;
+}
+
+export interface SetupConfigureParams {
+  anthropicKey?: string;
+  openaiKey?: string;
+  token?: string;
+  model?: string;
 }
 
 // Event payloads
@@ -133,13 +153,25 @@ export interface SessionMessage {
 
 export interface ChatMessage {
   id: string;
-  role: 'user' | 'assistant';
+  role: 'user' | 'assistant' | 'approval';
   content: string;
   timestamp: string;
   isStreaming?: boolean;
   model?: string;
   usage?: TokenUsage;
   toolCalls?: ToolCallInfo[];
+  approval?: ApprovalRequest;
+}
+
+export interface ApprovalRequest {
+  requestId: string;
+  toolName: string;
+  args: Record<string, unknown>;
+  sessionKey: string;
+  agentId?: string;
+  status: 'pending' | 'approved' | 'denied' | 'expired';
+  timeoutMs?: number;
+  requestedAt: string;
 }
 
 export interface ToolCallInfo {

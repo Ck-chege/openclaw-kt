@@ -1,15 +1,18 @@
 import { MessageList } from './MessageList';
 import { ChatInput } from './ChatInput';
 import { useChatStore } from '@/stores/chat-store';
+import { useDashboardStore } from '@/stores/dashboard-store';
 import { useConnectionStore } from '@/stores/connection-store';
 
 export function ChatView() {
   const { messages, isStreaming, sendMessage, stopAgent } = useChatStore();
+  const { selectedModelId, models } = useDashboardStore();
   const { client, state } = useConnectionStore();
 
   const handleSend = async (text: string) => {
     if (!client) return;
-    await sendMessage(client, text);
+    const modelId = selectedModelId || models[0]?.id;
+    await sendMessage(client, text, modelId);
   };
 
   const handleStop = async () => {
