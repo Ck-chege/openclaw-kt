@@ -5,6 +5,7 @@ import com.openclaw.gateway.config.GatewayConfig
 import com.openclaw.gateway.rpc.RpcHandler
 import com.openclaw.gateway.rpc.RpcRouter
 import com.openclaw.gateway.ws.SessionRegistry
+import com.openclaw.gateway.ws.SetupStatus
 import com.openclaw.gateway.ws.WebSocketHandler
 import io.github.oshai.kotlinlogging.KotlinLogging
 import io.ktor.http.*
@@ -27,11 +28,14 @@ private val logger = KotlinLogging.logger {}
  * Manages the Ktor/Netty embedded server lifecycle, WebSocket handling,
  * authentication, and RPC routing.
  */
-class GatewayServer(private val config: GatewayConfig) {
+class GatewayServer(
+    private val config: GatewayConfig,
+    setupStatusProvider: () -> SetupStatus = { SetupStatus(false, "ONBOARDING_COMPLETE") }
+) {
     private val auth = GatewayAuth(config.gateway.auth.token, config.gateway.auth.password)
     val router = RpcRouter()
     val sessionRegistry = SessionRegistry()
-    private val wsHandler = WebSocketHandler(auth, router, sessionRegistry)
+    private val wsHandler = WebSocketHandler(auth, router, sessionRegistry, setupStatusProvider)
     private var server: EmbeddedServer<*, *>? = null
 
     /**

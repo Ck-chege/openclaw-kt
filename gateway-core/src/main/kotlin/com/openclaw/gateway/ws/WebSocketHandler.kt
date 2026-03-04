@@ -15,20 +15,30 @@ import kotlinx.serialization.json.contentOrNull
 private val logger = KotlinLogging.logger {}
 
 /**
+ * Setup status communicated to clients in the `connect.hello` response.
+ * When [setupRequired] is true, the client should show the onboarding UI.
+ */
+data class SetupStatus(
+    val setupRequired: Boolean,
+    val onboardingPhase: String
+)
+
+/**
  * Handles WebSocket connections following the OpenClaw wire protocol.
  *
  * Connection lifecycle:
  * 1. Wait for the first frame, which must be a `connect.hello` request.
  * 2. Extract the token from params and authenticate via [auth].
  * 3. If authentication fails, send an error response and close.
- * 4. If authentication succeeds, send an OK response.
+ * 4. If authentication succeeds, send an OK response (including setup status).
  * 5. Enter the message loop: receive frames, route to RPC, send responses.
  * 6. Handle errors gracefully (log and close).
  */
 class WebSocketHandler(
     private val auth: GatewayAuth,
     private val router: RpcRouter,
-    private val sessionRegistry: SessionRegistry = SessionRegistry()
+    private val sessionRegistry: SessionRegistry = SessionRegistry(),
+    private val setupStatusProvider: () -> SetupStatus = { SetupStatus(false, "ONBOARDING_COMPLETE") }
 ) {
 
     suspend fun handleSession(wsSession: DefaultWebSocketServerSession) {
@@ -82,13 +92,16 @@ class WebSocketHandler(
                 return
             }
 
-            // Step 4: Auth succeeded, send OK
+            // Step 4: Auth succeeded, send OK with setup status
+            val setupStatus = setupStatusProvider()
             val okResponse = Frame.Response(
                 id = firstFrame.id,
                 ok = true,
                 payload = JsonObject(mapOf(
                     "sessionId" to JsonPrimitive(session.id),
-                    "message" to JsonPrimitive("Connected")
+                    "message" to JsonPrimitive("Connected"),
+                    "setupRequired" to JsonPrimitive(setupStatus.setupRequired),
+                    "onboardingPhase" to JsonPrimitive(setupStatus.onboardingPhase)
                 ))
             )
             wsSession.send(io.ktor.websocket.Frame.Text(Frame.serialize(okResponse)))

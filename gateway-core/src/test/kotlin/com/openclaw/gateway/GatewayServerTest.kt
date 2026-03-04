@@ -3,6 +3,7 @@ package com.openclaw.gateway
 import com.openclaw.gateway.config.AuthConfig
 import com.openclaw.gateway.config.GatewayConfig
 import com.openclaw.gateway.config.GatewaySettings
+import com.openclaw.gateway.ws.SetupStatus
 import com.openclaw.protocol.frames.Frame
 import io.kotest.matchers.shouldBe
 import io.kotest.matchers.string.shouldContain
@@ -15,21 +16,24 @@ import io.ktor.client.plugins.websocket.*
 import io.ktor.websocket.*
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
+import kotlinx.serialization.json.boolean
 import kotlinx.serialization.json.buildJsonObject
+import org.junit.jupiter.api.Nested
 import org.junit.jupiter.api.Test
 
 class GatewayServerTest {
 
     private fun createTestServer(
         token: String? = null,
-        password: String? = null
+        password: String? = null,
+        setupStatus: SetupStatus = SetupStatus(false, "ONBOARDING_COMPLETE")
     ): GatewayServer {
         val config = GatewayConfig(
             gateway = GatewaySettings(
                 auth = AuthConfig(token = token, password = password)
             )
         )
-        return GatewayServer(config)
+        return GatewayServer(config, setupStatusProvider = { setupStatus })
     }
 
     @Test
@@ -159,6 +163,68 @@ class GatewayServerTest {
             parsed.ok shouldBe false
             parsed.id shouldBe "rpc-unknown"
             (parsed.payload["error"] as JsonPrimitive).content shouldContain "No handler registered"
+        }
+    }
+
+    @Nested
+    inner class SetupRequired {
+
+        @Test
+        fun `connect hello includes setupRequired true on fresh install`() = testApplication {
+            val gatewayServer = createTestServer(
+                setupStatus = SetupStatus(true, "BOOTSTRAP_SEEDED")
+            )
+            application {
+                with(gatewayServer) { configureApplication() }
+            }
+
+            val wsClient = createClient {
+                install(ClientWebSockets)
+            }
+
+            wsClient.webSocket("/") {
+                val helloFrame = Frame.Request(
+                    id = "hello-setup",
+                    method = "connect.hello",
+                    params = JsonObject(mapOf("role" to JsonPrimitive("operator")))
+                )
+                send(io.ktor.websocket.Frame.Text(Frame.serialize(helloFrame)))
+
+                val resp = (incoming.receive() as io.ktor.websocket.Frame.Text).readText()
+                val parsed = Frame.deserialize(resp) as Frame.Response
+                parsed.ok shouldBe true
+                (parsed.payload["setupRequired"] as JsonPrimitive).boolean shouldBe true
+                (parsed.payload["onboardingPhase"] as JsonPrimitive).content shouldBe "BOOTSTRAP_SEEDED"
+            }
+        }
+
+        @Test
+        fun `connect hello includes setupRequired false after setup`() = testApplication {
+            val gatewayServer = createTestServer(
+                setupStatus = SetupStatus(false, "ONBOARDING_COMPLETE")
+            )
+            application {
+                with(gatewayServer) { configureApplication() }
+            }
+
+            val wsClient = createClient {
+                install(ClientWebSockets)
+            }
+
+            wsClient.webSocket("/") {
+                val helloFrame = Frame.Request(
+                    id = "hello-done",
+                    method = "connect.hello",
+                    params = JsonObject(mapOf("role" to JsonPrimitive("operator")))
+                )
+                send(io.ktor.websocket.Frame.Text(Frame.serialize(helloFrame)))
+
+                val resp = (incoming.receive() as io.ktor.websocket.Frame.Text).readText()
+                val parsed = Frame.deserialize(resp) as Frame.Response
+                parsed.ok shouldBe true
+                (parsed.payload["setupRequired"] as JsonPrimitive).boolean shouldBe false
+                (parsed.payload["onboardingPhase"] as JsonPrimitive).content shouldBe "ONBOARDING_COMPLETE"
+            }
         }
     }
 

@@ -19,9 +19,24 @@ private val json = Json {
 }
 
 /**
- * Register built-in RPC handlers for configuration, models, and channel status.
+ * Data class for model info passed from the model registry via lambda.
  */
-fun registerConfigHandlers(router: RpcRouter, configManager: ConfigManager) {
+data class ModelInfo(
+    val id: String,
+    val provider: String,
+    val displayName: String,
+)
+
+/**
+ * Register built-in RPC handlers for configuration, models, and channel status.
+ *
+ * @param modelLister returns all available models — injected to avoid coupling gateway-core to agent-engine.
+ */
+fun registerConfigHandlers(
+    router: RpcRouter,
+    configManager: ConfigManager,
+    modelLister: () -> List<ModelInfo> = { emptyList() },
+) {
 
     // config.get -- Return the current gateway configuration
     router.register("config.get") { _, _ ->
@@ -30,17 +45,18 @@ fun registerConfigHandlers(router: RpcRouter, configManager: ConfigManager) {
         json.encodeToJsonElement<GatewayConfig>(currentConfig).jsonObject
     }
 
-    // models.list -- Return available models (stub)
+    // models.list -- Return available models from the registry
     router.register("models.list") { _, _ ->
         logger.debug { "Handling models.list" }
+        val models = modelLister()
         buildJsonObject {
-            put("models", JsonArray(listOf(
+            put("models", JsonArray(models.map { model ->
                 buildJsonObject {
-                    put("id", JsonPrimitive("anthropic:claude-sonnet-4-5"))
-                    put("provider", JsonPrimitive("anthropic"))
-                    put("name", JsonPrimitive("claude-sonnet-4-5"))
+                    put("id", JsonPrimitive(model.id))
+                    put("provider", JsonPrimitive(model.provider))
+                    put("name", JsonPrimitive(model.displayName))
                 }
-            )))
+            }))
         }
     }
 
