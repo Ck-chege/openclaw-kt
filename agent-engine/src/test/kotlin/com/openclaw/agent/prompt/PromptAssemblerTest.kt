@@ -1,6 +1,8 @@
 package com.openclaw.agent.prompt
 
+import com.openclaw.protocol.identifiers.ChatType
 import com.openclaw.protocol.identifiers.ModelId
+import com.openclaw.protocol.identifiers.SessionKey
 import io.kotest.matchers.shouldBe
 import io.kotest.matchers.string.shouldContain
 import io.kotest.matchers.string.shouldNotContain
@@ -21,140 +23,306 @@ class PromptAssemblerTest {
         osInfo = "TestOS 1.0"
     )
 
+    private fun fullContext() = PromptContext(
+        soul = "Be helpful.",
+        agents = "Agent config",
+        user = "Isaac",
+        tools = "exec, fs",
+        memory = "Previous sessions",
+        identity = "Agent identity",
+        bootstrap = "Bootstrap instructions",
+        heartbeat = "Check email daily",
+        toolDescriptions = listOf(
+            ToolDescription("read", "Read file contents"),
+            ToolDescription("write", "Write file contents")
+        ),
+        authorizedSender = "Isaac (owner)",
+        skillsXml = "<skills><skill name=\"search\" /></skills>",
+        channelName = "telegram",
+        channelCapabilities = "text, images",
+        modelId = ModelId("anthropic:claude-sonnet-4-6"),
+        currentTime = epoch,
+        timeZone = utc,
+        osInfo = "Linux 6.0"
+    )
+
     @Nested
-    inner class SectionPresence {
+    inner class IdentityLine {
 
         @Test
-        fun `all populated fields produce all expected sections`() {
-            val ctx = PromptContext(
-                soul = "Be helpful.",
-                agents = "Agent config",
-                user = "Isaac",
-                tools = "exec, fs",
-                memory = "Previous sessions",
-                identity = "Agent identity",
-                bootstrap = "Bootstrap instructions",
-                skillsXml = "<skills><skill name=\"search\" /></skills>",
-                channelName = "telegram",
-                channelCapabilities = "text, images",
-                modelId = ModelId("anthropic:claude-sonnet-4-6"),
-                currentTime = epoch,
-                timeZone = utc,
-                osInfo = "Linux 6.0"
-            )
-            val result = PromptAssembler.assembleSystemPrompt(ctx)
-
-            result shouldContain "## BOOTSTRAP"
-            result shouldContain "## SOUL"
-            result shouldContain "## IDENTITY"
-            result shouldContain "## AGENTS"
-            result shouldContain "## USER"
-            result shouldContain "## TOOLS"
-            result shouldContain "<skills>"
-            result shouldContain "## CHANNEL"
-            result shouldContain "## MEMORY"
-            result shouldContain "## RUNTIME"
-        }
-
-        @Test
-        fun `empty optional fields cause those sections to be omitted`() {
-            val ctx = minimalContext().copy(
-                soul = "",
-                agents = "",
-                user = "",
-                tools = "",
-                memory = ""
-            )
-            val result = PromptAssembler.assembleSystemPrompt(ctx)
-
-            result shouldNotContain "## SOUL"
-            result shouldNotContain "## AGENTS"
-            result shouldNotContain "## USER"
-            result shouldNotContain "## TOOLS"
-            result shouldNotContain "## MEMORY"
-            // RUNTIME is always present because it always has content
-            result shouldContain "## RUNTIME"
-        }
-
-        @Test
-        fun `empty workspace with only defaults produces only runtime section`() {
+        fun `prompt starts with identity line`() {
             val result = PromptAssembler.assembleSystemPrompt(minimalContext())
-            // No markdown section headers except RUNTIME
-            result shouldContain "## RUNTIME"
-            result shouldNotContain "## SOUL"
-            result shouldNotContain "## AGENTS"
-            result shouldNotContain "## USER"
-            result shouldNotContain "## TOOLS"
-            result shouldNotContain "## MEMORY"
-            result shouldNotContain "## CHANNEL"
+            result.trimStart().startsWith("You are a personal AI assistant.") shouldBe true
+        }
+
+        @Test
+        fun `identity line present in all prompt modes`() {
+            for (mode in PromptMode.entries) {
+                val ctx = minimalContext().copy(promptMode = mode)
+                val result = PromptAssembler.assembleSystemPrompt(ctx)
+                result shouldContain "You are a personal AI assistant."
+            }
         }
     }
 
     @Nested
-    inner class SectionOrder {
+    inner class Zone1SystemInstructions {
 
         @Test
-        fun `sections appear in correct order BOOTSTRAP SOUL IDENTITY AGENTS USER TOOLS SKILLS CHANNEL MEMORY RUNTIME`() {
-            val ctx = PromptContext(
-                soul = "Soul",
-                agents = "Agents",
-                user = "User",
-                tools = "Tools",
-                memory = "Memory",
-                identity = "Identity",
-                bootstrap = "Bootstrap",
-                skillsXml = "<skills />",
-                channelName = "discord",
-                currentTime = epoch,
-                timeZone = utc,
-                osInfo = "TestOS 1.0"
+        fun `tool descriptions section present when tools provided`() {
+            val ctx = minimalContext().copy(
+                toolDescriptions = listOf(
+                    ToolDescription("read", "Read file contents"),
+                    ToolDescription("exec", "Execute shell command")
+                )
             )
             val result = PromptAssembler.assembleSystemPrompt(ctx)
+            result shouldContain "## AVAILABLE TOOLS"
+            result shouldContain "- **read** — Read file contents"
+            result shouldContain "- **exec** — Execute shell command"
+        }
 
-            val bootstrapIdx = result.indexOf("## BOOTSTRAP")
-            val soulIdx = result.indexOf("## SOUL")
-            val identityIdx = result.indexOf("## IDENTITY")
-            val agentsIdx = result.indexOf("## AGENTS")
-            val userIdx = result.indexOf("## USER")
-            val toolsIdx = result.indexOf("## TOOLS")
-            val skillsIdx = result.indexOf("<skills />")
-            val channelIdx = result.indexOf("## CHANNEL")
-            val memoryIdx = result.indexOf("## MEMORY")
+        @Test
+        fun `tool descriptions section absent when no tools`() {
+            val result = PromptAssembler.assembleSystemPrompt(minimalContext())
+            result shouldNotContain "## AVAILABLE TOOLS"
+        }
+
+        @Test
+        fun `tool call style directive present when tools provided`() {
+            val ctx = minimalContext().copy(
+                toolDescriptions = listOf(ToolDescription("read", "Read"))
+            )
+            val result = PromptAssembler.assembleSystemPrompt(ctx)
+            result shouldContain "do not narrate routine"
+        }
+
+        @Test
+        fun `safety section always present`() {
+            val result = PromptAssembler.assembleSystemPrompt(minimalContext())
+            result shouldContain "## SAFETY"
+            result shouldContain "Never seek to acquire resources"
+        }
+
+        @Test
+        fun `authorized senders section present when set`() {
+            val ctx = minimalContext().copy(authorizedSender = "Isaac (admin)")
+            val result = PromptAssembler.assembleSystemPrompt(ctx)
+            result shouldContain "## AUTHORIZED SENDERS"
+            result shouldContain "Owner: Isaac (admin)"
+        }
+
+        @Test
+        fun `authorized senders section absent when null`() {
+            val result = PromptAssembler.assembleSystemPrompt(minimalContext())
+            result shouldNotContain "## AUTHORIZED SENDERS"
+        }
+
+        @Test
+        fun `date and time section present`() {
+            val result = PromptAssembler.assembleSystemPrompt(minimalContext())
+            result shouldContain "## DATE & TIME"
+            result shouldContain "Date: 1970-01-01"
+            result shouldContain "Timezone: UTC"
+        }
+    }
+
+    @Nested
+    inner class Zone2WorkspaceFiles {
+
+        @Test
+        fun `workspace header present when any workspace file has content`() {
+            val ctx = minimalContext().copy(soul = "Be helpful.")
+            val result = PromptAssembler.assembleSystemPrompt(ctx)
+            result shouldContain "# Workspace"
+        }
+
+        @Test
+        fun `workspace files use dot-md suffixed headers`() {
+            val ctx = fullContext()
+            val result = PromptAssembler.assembleSystemPrompt(ctx)
+            result shouldContain "## AGENTS.md"
+            result shouldContain "## SOUL.md"
+            result shouldContain "## TOOLS.md"
+            result shouldContain "## IDENTITY.md"
+            result shouldContain "## USER.md"
+            result shouldContain "## HEARTBEAT.md"
+            result shouldContain "## BOOTSTRAP.md"
+            result shouldContain "## MEMORY.md"
+        }
+
+        @Test
+        fun `empty workspace files are omitted`() {
+            val result = PromptAssembler.assembleSystemPrompt(minimalContext())
+            result shouldNotContain "## AGENTS.md"
+            result shouldNotContain "## SOUL.md"
+            result shouldNotContain "## TOOLS.md"
+            result shouldNotContain "## IDENTITY.md"
+            result shouldNotContain "## USER.md"
+        }
+
+        @Test
+        fun `workspace file order is AGENTS SOUL TOOLS IDENTITY USER HEARTBEAT BOOTSTRAP MEMORY`() {
+            val ctx = fullContext()
+            val result = PromptAssembler.assembleSystemPrompt(ctx)
+
+            val agentsIdx = result.indexOf("## AGENTS.md")
+            val soulIdx = result.indexOf("## SOUL.md")
+            val toolsIdx = result.indexOf("## TOOLS.md")
+            val identityIdx = result.indexOf("## IDENTITY.md")
+            val userIdx = result.indexOf("## USER.md")
+            val heartbeatIdx = result.indexOf("## HEARTBEAT.md")
+            val bootstrapIdx = result.indexOf("## BOOTSTRAP.md")
+            val memoryIdx = result.indexOf("## MEMORY.md")
+
+            (agentsIdx < soulIdx) shouldBe true
+            (soulIdx < toolsIdx) shouldBe true
+            (toolsIdx < identityIdx) shouldBe true
+            (identityIdx < userIdx) shouldBe true
+            (userIdx < heartbeatIdx) shouldBe true
+            (heartbeatIdx < bootstrapIdx) shouldBe true
+            (bootstrapIdx < memoryIdx) shouldBe true
+        }
+
+        @Test
+        fun `bootstrap section absent when bootstrap is blank`() {
+            val ctx = minimalContext().copy(soul = "Soul")
+            val result = PromptAssembler.assembleSystemPrompt(ctx)
+            result shouldNotContain "## BOOTSTRAP.md"
+        }
+
+        @Test
+        fun `heartbeat section absent when heartbeat is blank`() {
+            val ctx = minimalContext().copy(soul = "Soul")
+            val result = PromptAssembler.assembleSystemPrompt(ctx)
+            result shouldNotContain "## HEARTBEAT.md"
+        }
+    }
+
+    @Nested
+    inner class MemorySecurityBoundary {
+
+        @Test
+        fun `memory included in main session`() {
+            val ctx = minimalContext().copy(
+                memory = "Important memories",
+                sessionType = SessionType.MAIN
+            )
+            val result = PromptAssembler.assembleSystemPrompt(ctx)
+            result shouldContain "## MEMORY.md"
+            result shouldContain "Important memories"
+        }
+
+        @Test
+        fun `memory excluded in group session`() {
+            val ctx = minimalContext().copy(
+                memory = "Private stuff",
+                sessionType = SessionType.GROUP
+            )
+            val result = PromptAssembler.assembleSystemPrompt(ctx)
+            result shouldNotContain "## MEMORY.md"
+            result shouldNotContain "Private stuff"
+        }
+
+        @Test
+        fun `memory included in subagent session`() {
+            val ctx = minimalContext().copy(
+                memory = "Context for sub",
+                sessionType = SessionType.SUBAGENT,
+                promptMode = PromptMode.FULL
+            )
+            val result = PromptAssembler.assembleSystemPrompt(ctx)
+            result shouldContain "## MEMORY.md"
+        }
+
+        @Test
+        fun `memory included in cron session`() {
+            val ctx = minimalContext().copy(
+                memory = "Cron context",
+                sessionType = SessionType.CRON,
+                promptMode = PromptMode.FULL
+            )
+            val result = PromptAssembler.assembleSystemPrompt(ctx)
+            result shouldContain "## MEMORY.md"
+        }
+    }
+
+    @Nested
+    inner class ZoneOrdering {
+
+        @Test
+        fun `zone 1 appears before zone 2`() {
+            val ctx = fullContext()
+            val result = PromptAssembler.assembleSystemPrompt(ctx)
+
+            val safetyIdx = result.indexOf("## SAFETY")
+            val workspaceIdx = result.indexOf("# Workspace")
+
+            (safetyIdx < workspaceIdx) shouldBe true
+        }
+
+        @Test
+        fun `zone 2 appears before zone 3`() {
+            val ctx = fullContext()
+            val result = PromptAssembler.assembleSystemPrompt(ctx)
+
+            val workspaceIdx = result.indexOf("# Workspace")
             val runtimeIdx = result.indexOf("## RUNTIME")
 
-            (bootstrapIdx < soulIdx) shouldBe true
-            (soulIdx < identityIdx) shouldBe true
-            (identityIdx < agentsIdx) shouldBe true
-            (agentsIdx < userIdx) shouldBe true
-            (userIdx < toolsIdx) shouldBe true
-            (toolsIdx < skillsIdx) shouldBe true
-            (skillsIdx < channelIdx) shouldBe true
-            (channelIdx < memoryIdx) shouldBe true
-            (memoryIdx < runtimeIdx) shouldBe true
+            (workspaceIdx < runtimeIdx) shouldBe true
+        }
+
+        @Test
+        fun `identity line appears before everything else`() {
+            val ctx = fullContext()
+            val result = PromptAssembler.assembleSystemPrompt(ctx)
+
+            val identityLineIdx = result.indexOf("You are a personal AI assistant")
+            val safetyIdx = result.indexOf("## SAFETY")
+            val workspaceIdx = result.indexOf("# Workspace")
+
+            (identityLineIdx < safetyIdx) shouldBe true
+            (identityLineIdx < workspaceIdx) shouldBe true
+        }
+
+        @Test
+        fun `tool descriptions appear before safety`() {
+            val ctx = fullContext()
+            val result = PromptAssembler.assembleSystemPrompt(ctx)
+
+            val toolsIdx = result.indexOf("## AVAILABLE TOOLS")
+            val safetyIdx = result.indexOf("## SAFETY")
+
+            (toolsIdx < safetyIdx) shouldBe true
+        }
+
+        @Test
+        fun `skills xml appears after safety and before workspace`() {
+            val ctx = fullContext()
+            val result = PromptAssembler.assembleSystemPrompt(ctx)
+
+            val safetyIdx = result.indexOf("## SAFETY")
+            val skillsIdx = result.indexOf("<skills>")
+            val workspaceIdx = result.indexOf("# Workspace")
+
+            (safetyIdx < skillsIdx) shouldBe true
+            (skillsIdx < workspaceIdx) shouldBe true
+        }
+
+        @Test
+        fun `date and time appears before workspace`() {
+            val ctx = fullContext()
+            val result = PromptAssembler.assembleSystemPrompt(ctx)
+
+            val dateIdx = result.indexOf("## DATE & TIME")
+            val workspaceIdx = result.indexOf("# Workspace")
+
+            (dateIdx < workspaceIdx) shouldBe true
         }
     }
 
     @Nested
     inner class RuntimeSection {
-
-        @Test
-        fun `runtime section contains date derived from currentTime and timezone`() {
-            val result = PromptAssembler.assembleSystemPrompt(minimalContext())
-            // Epoch 0 in UTC is 1970-01-01
-            result shouldContain "Date: 1970-01-01"
-        }
-
-        @Test
-        fun `runtime section contains time derived from currentTime`() {
-            val result = PromptAssembler.assembleSystemPrompt(minimalContext())
-            result shouldContain "Time: 00:00"
-        }
-
-        @Test
-        fun `runtime section contains timezone id`() {
-            val result = PromptAssembler.assembleSystemPrompt(minimalContext())
-            result shouldContain "Timezone: UTC"
-        }
 
         @Test
         fun `runtime section contains model id when set`() {
@@ -176,10 +344,9 @@ class PromptAssemblerTest {
         }
 
         @Test
-        fun `runtime section contains channel name when channelName is set`() {
+        fun `runtime section contains channel name when set`() {
             val ctx = minimalContext().copy(channelName = "slack")
             val result = PromptAssembler.assembleSystemPrompt(ctx)
-            // Channel appears in RUNTIME block as well
             val runtimeStart = result.indexOf("## RUNTIME")
             val runtimeContent = result.substring(runtimeStart)
             runtimeContent shouldContain "Channel: slack"
@@ -220,32 +387,21 @@ class PromptAssemblerTest {
             val result = PromptAssembler.assembleSystemPrompt(ctx)
             result shouldContain "Capabilities: text, embeds, reactions"
         }
-
-        @Test
-        fun `channel section omits capabilities line when channelCapabilities is null`() {
-            val ctx = minimalContext().copy(channelName = "signal")
-            val result = PromptAssembler.assembleSystemPrompt(ctx)
-            val channelStart = result.indexOf("## CHANNEL")
-            val afterChannel = result.substring(channelStart)
-            afterChannel shouldNotContain "Capabilities:"
-        }
     }
 
     @Nested
     inner class SkillsXml {
 
         @Test
-        fun `skillsXml passed through as raw content without section header`() {
+        fun `skillsXml passed through as raw content`() {
             val xmlPayload = "<skills><skill name=\"search\" enabled=\"true\" /></skills>"
             val ctx = minimalContext().copy(skillsXml = xmlPayload)
             val result = PromptAssembler.assembleSystemPrompt(ctx)
             result shouldContain xmlPayload
-            // Skills XML is raw — it must not be wrapped in a ## SKILLS header
-            result shouldNotContain "## SKILLS"
         }
 
         @Test
-        fun `empty skillsXml produces no raw skills block`() {
+        fun `empty skillsXml produces no skills block`() {
             val ctx = minimalContext().copy(skillsXml = "")
             val result = PromptAssembler.assembleSystemPrompt(ctx)
             result shouldNotContain "<skills"
@@ -260,13 +416,68 @@ class PromptAssemblerTest {
     }
 
     @Nested
+    inner class PromptModes {
+
+        @Test
+        fun `minimal mode excludes heartbeat bootstrap and memory`() {
+            val ctx = fullContext().copy(promptMode = PromptMode.MINIMAL)
+            val result = PromptAssembler.assembleSystemPrompt(ctx)
+
+            result shouldNotContain "## HEARTBEAT.md"
+            result shouldNotContain "## BOOTSTRAP.md"
+            result shouldNotContain "## MEMORY.md"
+        }
+
+        @Test
+        fun `minimal mode includes core workspace files`() {
+            val ctx = fullContext().copy(promptMode = PromptMode.MINIMAL)
+            val result = PromptAssembler.assembleSystemPrompt(ctx)
+
+            result shouldContain "## AGENTS.md"
+            result shouldContain "## SOUL.md"
+            result shouldContain "## TOOLS.md"
+            result shouldContain "## IDENTITY.md"
+            result shouldContain "## USER.md"
+        }
+
+        @Test
+        fun `minimal mode includes system instructions`() {
+            val ctx = fullContext().copy(promptMode = PromptMode.MINIMAL)
+            val result = PromptAssembler.assembleSystemPrompt(ctx)
+
+            result shouldContain "You are a personal AI assistant"
+            result shouldContain "## SAFETY"
+            result shouldContain "## AVAILABLE TOOLS"
+        }
+
+        @Test
+        fun `none mode only has identity line and tools`() {
+            val ctx = fullContext().copy(promptMode = PromptMode.NONE)
+            val result = PromptAssembler.assembleSystemPrompt(ctx)
+
+            result shouldContain "You are a personal AI assistant"
+            result shouldContain "## AVAILABLE TOOLS"
+            result shouldNotContain "## SAFETY"
+            result shouldNotContain "# Workspace"
+            result shouldNotContain "## RUNTIME"
+        }
+
+        @Test
+        fun `none mode without tools is just identity line`() {
+            val ctx = minimalContext().copy(promptMode = PromptMode.NONE)
+            val result = PromptAssembler.assembleSystemPrompt(ctx)
+
+            result.trim() shouldBe "You are a personal AI assistant."
+        }
+    }
+
+    @Nested
     inner class SectionSeparation {
 
         @Test
         fun `multiple sections are separated by double newline`() {
             val ctx = minimalContext().copy(soul = "Be helpful.", user = "Isaac")
             val result = PromptAssembler.assembleSystemPrompt(ctx)
-            // Sections separated by exactly two newlines
             result shouldContain "\n\n"
         }
 
@@ -274,97 +485,178 @@ class PromptAssemblerTest {
         fun `section content follows header on next line`() {
             val ctx = minimalContext().copy(soul = "Be helpful.")
             val result = PromptAssembler.assembleSystemPrompt(ctx)
-            result shouldContain "## SOUL\nBe helpful."
+            result shouldContain "## SOUL.md\nBe helpful."
         }
     }
 
     @Nested
-    inner class BootstrapSection {
+    inner class DeriveSessionType {
 
         @Test
-        fun `bootstrap section present when bootstrap is non-blank`() {
-            val ctx = minimalContext().copy(bootstrap = "Initialize system")
-            val result = PromptAssembler.assembleSystemPrompt(ctx)
-            result shouldContain "## BOOTSTRAP"
-            result shouldContain "Initialize system"
+        fun `subagent key derives SUBAGENT`() {
+            val key = SessionKey.subagent(SessionKey.main(), "sub123")
+            PromptContextDefaults.deriveSessionType(key) shouldBe SessionType.SUBAGENT
         }
 
         @Test
-        fun `bootstrap section absent when bootstrap is blank`() {
-            val result = PromptAssembler.assembleSystemPrompt(minimalContext())
-            result shouldNotContain "## BOOTSTRAP"
+        fun `cron key derives CRON`() {
+            val key = SessionKey.cron("main", "job1")
+            PromptContextDefaults.deriveSessionType(key) shouldBe SessionType.CRON
         }
 
         @Test
-        fun `bootstrap section appears before SOUL section`() {
-            val ctx = minimalContext().copy(
-                bootstrap = "Bootstrap content",
-                soul = "Soul content"
-            )
-            val result = PromptAssembler.assembleSystemPrompt(ctx)
-            val bootstrapIdx = result.indexOf("## BOOTSTRAP")
-            val soulIdx = result.indexOf("## SOUL")
-            (bootstrapIdx < soulIdx) shouldBe true
+        fun `GROUP chatType derives GROUP`() {
+            val key = SessionKey.dm("main", "telegram", "user1")
+            PromptContextDefaults.deriveSessionType(key, ChatType.GROUP) shouldBe SessionType.GROUP
         }
 
         @Test
-        fun `bootstrap section omitted does not affect other section order`() {
-            val ctx = minimalContext().copy(
-                soul = "Soul",
-                agents = "Agents",
-                user = "User"
-            )
-            val result = PromptAssembler.assembleSystemPrompt(ctx)
-            result shouldNotContain "## BOOTSTRAP"
-            // SOUL should be the first section
-            val soulIdx = result.indexOf("## SOUL")
-            (soulIdx >= 0) shouldBe true
-            val beforeSoul = result.substring(0, soulIdx).trim()
-            beforeSoul shouldBe ""
-        }
-    }
-
-    @Nested
-    inner class IdentitySection {
-
-        @Test
-        fun `identity section present when identity is non-blank`() {
-            val ctx = minimalContext().copy(identity = "I am a helpful assistant")
-            val result = PromptAssembler.assembleSystemPrompt(ctx)
-            result shouldContain "## IDENTITY"
-            result shouldContain "I am a helpful assistant"
+        fun `DM chatType on normal key derives MAIN`() {
+            val key = SessionKey.dm("main", "telegram", "user1")
+            PromptContextDefaults.deriveSessionType(key, ChatType.DM) shouldBe SessionType.MAIN
         }
 
         @Test
-        fun `identity section absent when identity is blank`() {
-            val result = PromptAssembler.assembleSystemPrompt(minimalContext())
-            result shouldNotContain "## IDENTITY"
+        fun `null chatType on normal key derives MAIN`() {
+            val key = SessionKey.main()
+            PromptContextDefaults.deriveSessionType(key) shouldBe SessionType.MAIN
         }
 
         @Test
-        fun `identity section appears after SOUL and before AGENTS`() {
-            val ctx = minimalContext().copy(
-                soul = "Soul content",
-                identity = "Identity content",
-                agents = "Agents content"
-            )
-            val result = PromptAssembler.assembleSystemPrompt(ctx)
-            val soulIdx = result.indexOf("## SOUL")
-            val identityIdx = result.indexOf("## IDENTITY")
-            val agentsIdx = result.indexOf("## AGENTS")
-            (soulIdx < identityIdx) shouldBe true
-            (identityIdx < agentsIdx) shouldBe true
+        fun `subagent takes priority over GROUP chatType`() {
+            val key = SessionKey.subagent(SessionKey.main(), "sub1")
+            PromptContextDefaults.deriveSessionType(key, ChatType.GROUP) shouldBe SessionType.SUBAGENT
+        }
+
+        @Test
+        fun `cron takes priority over GROUP chatType`() {
+            val key = SessionKey.cron("main", "job1")
+            PromptContextDefaults.deriveSessionType(key, ChatType.GROUP) shouldBe SessionType.CRON
         }
     }
 
     @Nested
-    inner class HeartbeatField {
+    inner class DerivePromptMode {
 
         @Test
-        fun `heartbeat field is not emitted as a prompt section`() {
-            val ctx = minimalContext().copy(heartbeat = "every 5 minutes")
+        fun `SUBAGENT derives MINIMAL`() {
+            PromptContextDefaults.derivePromptMode(SessionType.SUBAGENT) shouldBe PromptMode.MINIMAL
+        }
+
+        @Test
+        fun `CRON derives MINIMAL`() {
+            PromptContextDefaults.derivePromptMode(SessionType.CRON) shouldBe PromptMode.MINIMAL
+        }
+
+        @Test
+        fun `MAIN derives FULL`() {
+            PromptContextDefaults.derivePromptMode(SessionType.MAIN) shouldBe PromptMode.FULL
+        }
+
+        @Test
+        fun `GROUP derives FULL`() {
+            PromptContextDefaults.derivePromptMode(SessionType.GROUP) shouldBe PromptMode.FULL
+        }
+    }
+
+    @Nested
+    inner class SessionTypeIntegration {
+
+        @Test
+        fun `subagent session produces minimal prompt without HEARTBEAT BOOTSTRAP MEMORY`() {
+            val ctx = fullContext().copy(
+                sessionType = SessionType.SUBAGENT,
+                promptMode = PromptMode.MINIMAL
+            )
             val result = PromptAssembler.assembleSystemPrompt(ctx)
-            result shouldNotContain "## HEARTBEAT"
+
+            result shouldContain "## AGENTS.md"
+            result shouldContain "## SOUL.md"
+            result shouldContain "## TOOLS.md"
+            result shouldContain "## IDENTITY.md"
+            result shouldContain "## USER.md"
+            result shouldNotContain "## HEARTBEAT.md"
+            result shouldNotContain "## BOOTSTRAP.md"
+            result shouldNotContain "## MEMORY.md"
+        }
+
+        @Test
+        fun `cron session produces minimal prompt`() {
+            val ctx = fullContext().copy(
+                sessionType = SessionType.CRON,
+                promptMode = PromptMode.MINIMAL
+            )
+            val result = PromptAssembler.assembleSystemPrompt(ctx)
+
+            result shouldNotContain "## HEARTBEAT.md"
+            result shouldNotContain "## BOOTSTRAP.md"
+            result shouldNotContain "## MEMORY.md"
+        }
+
+        @Test
+        fun `group session gets full prompt but no MEMORY`() {
+            val ctx = fullContext().copy(
+                sessionType = SessionType.GROUP,
+                promptMode = PromptMode.FULL,
+                memory = "Secret memory"
+            )
+            val result = PromptAssembler.assembleSystemPrompt(ctx)
+
+            result shouldContain "## HEARTBEAT.md"
+            result shouldContain "## BOOTSTRAP.md"
+            result shouldNotContain "## MEMORY.md"
+            result shouldNotContain "Secret memory"
+        }
+    }
+
+    @Nested
+    inner class WorkspaceTotalCap {
+
+        @Test
+        fun `workspace under total cap is unchanged`() {
+            val soulContent = "A".repeat(100)
+            val agentsContent = "B".repeat(100)
+            val ctx = minimalContext().copy(
+                soul = soulContent,
+                agents = agentsContent,
+                limits = PromptLimits(workspaceTotalCharLimit = 1_000_000)
+            )
+            val result = PromptAssembler.assembleSystemPrompt(ctx)
+
+            result shouldContain soulContent
+            result shouldContain agentsContent
+            result shouldNotContain "content truncated"
+        }
+
+        @Test
+        fun `workspace exceeding total cap gets largest file truncated`() {
+            val soulContent = "A".repeat(300)
+            val agentsContent = "B".repeat(400)
+            val ctx = minimalContext().copy(
+                soul = soulContent,
+                agents = agentsContent,
+                limits = PromptLimits(workspaceTotalCharLimit = 500)
+            )
+            val result = PromptAssembler.assembleSystemPrompt(ctx)
+
+            result shouldContain "content truncated"
+        }
+
+        @Test
+        fun `small files not truncated when large file is the culprit`() {
+            val soulContent = "A".repeat(50)
+            val agentsContent = "B".repeat(600)
+            val ctx = minimalContext().copy(
+                soul = soulContent,
+                agents = agentsContent,
+                limits = PromptLimits(workspaceTotalCharLimit = 500)
+            )
+            val result = PromptAssembler.assembleSystemPrompt(ctx)
+
+            // The small soul file should appear unchanged
+            result shouldContain soulContent
+            // The large agents file should be truncated
+            result shouldContain "content truncated"
         }
     }
 }
