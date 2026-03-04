@@ -12,6 +12,8 @@ enum class LLMProvider(val prefix: String, val envVar: String) {
     ANTHROPIC("anthropic", "ANTHROPIC_API_KEY"),
     OPENAI("openai", "OPENAI_API_KEY");
 
+
+
     companion object {
         fun fromPrefix(prefix: String): LLMProvider? =
             entries.find { it.prefix == prefix.lowercase() }
@@ -29,10 +31,11 @@ class ProviderFactory(
                 ?: throw ModelRegistryError.MissingApiKey(provider.prefix, provider.envVar)
 
             logger.info { "Creating executor for provider: ${provider.prefix}" }
-            when (provider) {
+            val baseExecutor = when (provider) {
                 LLMProvider.ANTHROPIC -> simpleAnthropicExecutor(apiKey)
                 LLMProvider.OPENAI -> simpleOpenAIExecutor(apiKey)
             }
+            RetryingExecutor(baseExecutor)
         }
 
     fun getExecutorForPrefix(prefix: String): PromptExecutor {

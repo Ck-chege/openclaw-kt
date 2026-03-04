@@ -78,7 +78,7 @@ class ModelRegistryTest {
         fun `resolveExecutor caches same executor for same provider`() {
             val registry = registryWithAllKeys()
             val executor1 = registry.resolveExecutor(ModelId("anthropic:claude-sonnet-4-5"))
-            val executor2 = registry.resolveExecutor(ModelId("anthropic:claude-opus-4-6"))
+            val executor2 = registry.resolveExecutor(ModelId("anthropic:claude-opus-4-5"))
             executor1 shouldBeSameInstanceAs executor2
         }
 
