@@ -4,15 +4,27 @@ import com.openclaw.agent.isolation.AgentResolver
 import com.openclaw.agent.model.ModelRegistry
 import com.openclaw.agent.rpc.registerAgentHandlers
 import com.openclaw.agent.runtime.AgentRuntime
+import com.openclaw.agent.runtime.CompactionTrigger
+import com.openclaw.agent.runtime.MemoryFlushRunner
 import com.openclaw.agent.runtime.RunManager
 import com.openclaw.agent.tools.NativeToolsProvider
+import com.openclaw.gateway.AppPaths
 import com.openclaw.gateway.GatewayServer
 import com.openclaw.gateway.config.ConfigManager
+import com.openclaw.gateway.config.ConfigWriter
+import com.openclaw.gateway.rpc.ModelInfo
 import com.openclaw.gateway.rpc.registerConfigHandlers
 import com.openclaw.gateway.rpc.registerSessionHandlers
+import com.openclaw.gateway.rpc.registerSetupHandlers
+import com.openclaw.gateway.ws.SetupStatus
 import com.openclaw.protocol.identifiers.SessionKey
+import com.openclaw.session.compaction.CompactableSessionStore
+import com.openclaw.session.compaction.CompactionConfig
+import com.openclaw.session.compaction.CompactionEngine
+import com.openclaw.session.compaction.CompactionResult
 import com.openclaw.session.composite.CompositeSessionStore
 import com.openclaw.session.jsonl.JsonlSessionProvider
+import ai.koog.agents.core.tools.ToolRegistry
 import com.openclaw.tools.ToolRegistryFactory
 import com.openclaw.tools.exec.BackgroundProcessTracker
 import com.openclaw.tools.exec.ExecTool
@@ -26,6 +38,10 @@ import com.openclaw.tools.mcp.McpTransport
 import com.openclaw.tools.policy.ToolPolicyPipeline
 import com.openclaw.tools.web.WebFetchTool
 import com.openclaw.tools.web.WebSearchTool
+import com.openclaw.tools.memory.MemorySearchTool
+import com.openclaw.tools.memory.MemoryGetTool
+import com.openclaw.memory.MemoryManager
+import com.openclaw.memory.rpc.registerMemoryHandlers
 import com.openclaw.agent.workspace.WorkspaceBootstrap
 import com.openclaw.skills.SkillLoader
 import io.github.oshai.kotlinlogging.KotlinLogging
@@ -40,9 +56,10 @@ private val logger = KotlinLogging.logger {}
 fun main() {
     logger.info { "OpenClaw-KT v0.1.0-SNAPSHOT" }
 
-    val configPath = Path.of(
-        System.getProperty("user.home"), ".openclawk", "openclaw.conf"
-    )
+    // Ensure base directory and default config exist
+    ensureDefaultConfig()
+
+    val configPath = AppPaths.config
     val configManager = ConfigManager(configPath)
     val config = configManager.load()
 
@@ -50,14 +67,45 @@ fun main() {
     configManager.startFileWatcher(appScope)
 
     // Session store
-    val sessionsDir = Path.of(System.getProperty("user.home"), ".openclawk", "sessions")
+    val sessionsDir = AppPaths.sessions
     val jsonlProvider = JsonlSessionProvider(sessionsDir)
     val sessionStore = CompositeSessionStore(jsonlProvider, checkpointProvider = null)
     logger.info { "Session store initialized (JSONL-only, Postgres checkpoints not configured)" }
 
-    // Agent engine
-    val modelRegistry = ModelRegistry()
-    val agentRuntime = AgentRuntime(modelRegistry, sessionStore)
+    // Agent engine — resolve API keys from config secrets first, then env vars
+    val modelRegistry = ModelRegistry(apiKeyResolver = { envVar ->
+        val secrets = configManager.config.value.secrets
+        when (envVar) {
+            "ANTHROPIC_API_KEY" -> secrets.anthropicApiKey ?: System.getenv(envVar)
+            "OPENAI_API_KEY" -> secrets.openaiApiKey ?: System.getenv(envVar)
+            else -> System.getenv(envVar)
+        }
+    })
+    // Compaction + pre-compaction memory flush
+    val compactionTrigger = (sessionStore as? CompactableSessionStore)?.let { compactable ->
+        val summarizer = { messages: List<com.openclaw.session.SessionMessage> ->
+            // Simple extractive summarizer — concatenate message snippets.
+            // A proper LLM-backed summarizer can replace this later.
+            val summary = messages.joinToString("\n") { msg ->
+                when (msg) {
+                    is com.openclaw.session.SessionMessage.UserMessage -> "User: ${msg.text.take(200)}"
+                    is com.openclaw.session.SessionMessage.AssistantMessage -> "Assistant: ${msg.text.take(200)}"
+                    is com.openclaw.session.SessionMessage.CompactionSummary -> "[Summary]: ${msg.summary.take(200)}"
+                    is com.openclaw.session.SessionMessage.ToolCall -> "[Tool: ${msg.toolName}]"
+                    is com.openclaw.session.SessionMessage.ToolResult -> "[Result: ${msg.result.take(100)}]"
+                    is com.openclaw.session.SessionMessage.SystemEvent -> ""
+                }.take(300)
+            }
+            CompactionResult(summary, summary.length / 4)
+        }
+        val engine = CompactionEngine(compactable, { messages -> summarizer(messages) })
+        val writeOnlyRegistry = ToolRegistry { tool(WriteTool) }
+        val flushRunner = MemoryFlushRunner(modelRegistry, writeOnlyRegistry)
+        CompactionTrigger(engine, flushRunner, sessionStore)
+    }
+    logger.info { "Compaction trigger: ${if (compactionTrigger != null) "enabled" else "disabled (session store not compactable)"}" }
+
+    val agentRuntime = AgentRuntime(modelRegistry, sessionStore, compactionTrigger)
     val runManager = RunManager(agentRuntime, appScope)
     val agentResolver = AgentResolver()
 
@@ -66,6 +114,29 @@ fun main() {
     val workspaceBootstrap = WorkspaceBootstrap(workspacePath)
     val workspaceState = workspaceBootstrap.ensureWorkspace()
     logger.info { "Workspace state: ${workspaceState.phase}" }
+
+    // Memory system
+    val memoryManager = if (config.memory.enabled) {
+        try {
+            MemoryManager(
+                config = config.memory,
+                workspacePath = workspacePath,
+                apiKeyResolver = { envVar ->
+                    val secrets = configManager.config.value.secrets
+                    when (envVar) {
+                        "OPENAI_API_KEY" -> secrets.openaiApiKey ?: System.getenv(envVar)
+                        else -> System.getenv(envVar)
+                    }
+                }
+            ).also { logger.info { "Memory system initialized (${it.config.provider})" } }
+        } catch (e: Exception) {
+            logger.warn(e) { "Memory system initialization failed, continuing without memory" }
+            null
+        }
+    } else {
+        logger.info { "Memory system disabled" }
+        null
+    }
 
     // Tools system
     val backgroundTracker = BackgroundProcessTracker()
@@ -116,19 +187,40 @@ fun main() {
         logger.info { "Web search disabled (BRAVE_API_KEY not set)" }
     }
 
-    val allTools = coreTools + nativeTools + mcpTools + webTools
+    // Memory tools
+    MemorySearchTool.memoryManager = memoryManager
+    MemoryGetTool.workspacePath = workspacePath
+    val memoryTools = listOf(MemorySearchTool, MemoryGetTool)
+
+    val allTools = coreTools + nativeTools + mcpTools + webTools + memoryTools
     val toolPolicyPipeline = ToolPolicyPipeline()
     val toolRegistryFactory = ToolRegistryFactory(toolPolicyPipeline, allTools)
-    logger.info { "Tool system initialized: ${allTools.size} tools (${coreTools.size} core, ${nativeTools.size} native, ${mcpTools.size} MCP, ${webTools.size} web)" }
+    logger.info { "Tool system initialized: ${allTools.size} tools (${coreTools.size} core, ${nativeTools.size} native, ${mcpTools.size} MCP, ${webTools.size} web, ${memoryTools.size} memory)" }
 
     // Skills system
     val skillLoader = SkillLoader()
     logger.info { "Skills system initialized" }
 
-    val gateway = GatewayServer(config)
+    // Config writer for setup handlers
+    val configWriter = ConfigWriter(configPath)
+
+    // Setup status provider — checks workspace phase
+    val setupStatusProvider: () -> SetupStatus = {
+        val phase = workspaceBootstrap.currentState().phase.name
+        SetupStatus(
+            setupRequired = phase != "ONBOARDING_COMPLETE",
+            onboardingPhase = phase
+        )
+    }
+
+    val gateway = GatewayServer(config, setupStatusProvider)
 
     // Register RPC handlers
-    registerConfigHandlers(gateway.router, configManager)
+    registerConfigHandlers(gateway.router, configManager) {
+        modelRegistry.list().map { def ->
+            ModelInfo(id = def.id.raw, provider = def.provider, displayName = def.displayName)
+        }
+    }
     registerAgentHandlers(
         router = gateway.router,
         runManager = runManager,
@@ -140,6 +232,14 @@ fun main() {
         skillLoader = skillLoader
     )
     registerSessionHandlers(gateway.router, sessionStore)
+    registerMemoryHandlers(gateway.router, memoryManager)
+    registerSetupHandlers(
+        router = gateway.router,
+        configManager = configManager,
+        configWriter = configWriter,
+        setupStatusProvider = { workspaceBootstrap.currentState().phase.name },
+        markOnboardingComplete = { workspaceBootstrap.markOnboardingComplete() }
+    )
 
     gateway.start()
 
@@ -158,3 +258,95 @@ fun main() {
     // Block the main thread so the server keeps running
     Thread.currentThread().join()
 }
+
+/**
+ * Ensures ~/.openclawk/ exists and seeds openclaw.conf if missing.
+ * The generated file at ~/.openclawk/openclaw.conf is the single source of truth.
+ */
+private fun ensureDefaultConfig() {
+    val baseDir = AppPaths.base
+    if (!baseDir.toFile().exists()) {
+        baseDir.toFile().mkdirs()
+        logger.info { "Created base directory: $baseDir" }
+    }
+
+    val configFile = AppPaths.config
+    if (!configFile.toFile().exists()) {
+        configFile.toFile().writeText(DEFAULT_CONFIG)
+        logger.info { "Generated default config: $configFile" }
+    }
+}
+
+private val DEFAULT_CONFIG = """
+# ──────────────────────────────────────────────────────────────────────
+# OpenClaw-KT Configuration (HOCON format)
+# ──────────────────────────────────────────────────────────────────────
+# This is the single config file. Edit values below to customize.
+# Changes are hot-reloaded (no restart needed unless reload.mode = OFF).
+# Environment variables: use ${'$'}{ENV_VAR} syntax.
+# All values shown are defaults — uncomment and change as needed.
+# ──────────────────────────────────────────────────────────────────────
+
+gateway {
+    # port = 18789
+    # bind = "127.0.0.1"
+
+    auth {
+        # token = "your-secret-token"
+        # password = "your-password"
+    }
+
+    reload {
+        # mode = "HYBRID"  # HYBRID | HOT | RESTART | OFF
+    }
+}
+
+agents {
+    defaults {
+        # model = "anthropic:claude-sonnet-4"
+        # workspace = "~/.openclawk/workspace"
+        # compaction = "safeguard"
+        # maxConcurrentRuns = 4
+    }
+
+    # list = [
+    #     { id = "telegram", model = "anthropic:claude-haiku-4-5" }
+    # ]
+}
+
+tools {
+    # profile = "full"
+    # allow = []
+    # deny = []
+
+    sandbox {
+        # enabled = false
+    }
+
+    loopDetection {
+        # enabled = true
+        # repeatWarning = 10
+        # repeatCritical = 20
+        # circuitBreaker = 30
+    }
+
+    # mcp = [
+    #     { name = "server", transport = "stdio", command = "/path/to/server" }
+    # ]
+}
+
+secrets {
+    # anthropicApiKey = "sk-ant-..."
+    # openaiApiKey = "sk-..."
+}
+
+memory {
+    # enabled = true
+    # provider = "openai"
+    # model = "text-embedding-3-small"
+}
+
+cron {
+    # enabled = true
+}
+""".trimIndent()

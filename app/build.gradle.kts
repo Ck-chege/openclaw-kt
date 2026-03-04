@@ -21,6 +21,7 @@ dependencies {
     implementation(project(":tools:exec"))
     implementation(project(":tools:filesystem"))
     implementation(project(":tools:web"))
+    implementation(project(":tools:memory-tools"))
     implementation(project(":skills"))
     implementation(project(":plugins"))
     implementation(project(":cron"))
