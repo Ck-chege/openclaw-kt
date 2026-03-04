@@ -11,7 +11,8 @@ enum class ToolGroup(val tools: Set<String>) {
     FS(setOf("read", "write", "edit")),
     SESSIONS(setOf("sessions_list", "sessions_history", "sessions_send", "sessions_spawn", "session_status")),
     OPENCLAW(setOf("cron", "gateway", "agents_list", "session_status")),
-    WEB(setOf("web_search", "web_fetch"));
+    WEB(setOf("web_search", "web_fetch")),
+    MEMORY(setOf("memory_search", "memory_get"));
 
     companion object {
         private const val GROUP_PREFIX = "group:"

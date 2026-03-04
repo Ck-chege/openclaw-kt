@@ -31,23 +31,49 @@ class ToolRegistryFactory(
         agentToolOverrides: AgentToolOverrides? = null,
         callerContext: CallerContext = CallerContext()
     ): ToolRegistry {
-        val allToolNames = allTools.map { it.name }.toSet()
-        val allowedNames = policyPipeline.filterAllowed(
-            allToolNames, toolsConfig, agentToolOverrides, callerContext
-        )
+        val allowedTools = filterAllowedTools(toolsConfig, agentToolOverrides, callerContext)
 
-        if (allowedNames.isEmpty()) {
-            logger.info { "No tools allowed for agent=${callerContext.agentId}, returning empty registry" }
+        if (allowedTools.isEmpty()) {
             return ToolRegistry.EMPTY
         }
-
-        val allowedTools = allTools.filter { it.name in allowedNames }
-        logger.info { "Built tool registry for agent=${callerContext.agentId}: ${allowedTools.map { it.name }}" }
 
         return ToolRegistry {
             for (tool in allowedTools) {
                 tool(tool)
             }
         }
+    }
+
+    /**
+     * Get name + description pairs for tools allowed by the policy pipeline.
+     * Used to inject tool descriptions into the system prompt (Zone 1).
+     */
+    fun buildDescriptions(
+        toolsConfig: ToolsConfig,
+        agentToolOverrides: AgentToolOverrides? = null,
+        callerContext: CallerContext = CallerContext()
+    ): List<Pair<String, String>> {
+        return filterAllowedTools(toolsConfig, agentToolOverrides, callerContext)
+            .map { it.name to it.descriptor.description }
+    }
+
+    private fun filterAllowedTools(
+        toolsConfig: ToolsConfig,
+        agentToolOverrides: AgentToolOverrides?,
+        callerContext: CallerContext
+    ): List<Tool<*, *>> {
+        val allToolNames = allTools.map { it.name }.toSet()
+        val allowedNames = policyPipeline.filterAllowed(
+            allToolNames, toolsConfig, agentToolOverrides, callerContext
+        )
+
+        if (allowedNames.isEmpty()) {
+            logger.info { "No tools allowed for agent=${callerContext.agentId}, returning empty" }
+            return emptyList()
+        }
+
+        val allowedTools = allTools.filter { it.name in allowedNames }
+        logger.info { "Filtered tools for agent=${callerContext.agentId}: ${allowedTools.map { it.name }}" }
+        return allowedTools
     }
 }
