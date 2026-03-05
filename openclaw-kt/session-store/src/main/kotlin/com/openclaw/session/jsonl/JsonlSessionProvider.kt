@@ -11,6 +11,7 @@ import kotlinx.serialization.json.Json
 import java.nio.file.Path
 import java.nio.file.StandardCopyOption
 import java.util.UUID
+import java.util.concurrent.ConcurrentHashMap
 import kotlin.io.path.*
 
 /**
@@ -46,8 +47,20 @@ class JsonlSessionProvider(private val sessionsDir: Path) : CompactableSessionSt
 
     private val indexFile: Path get() = sessionsDir / "sessions.json"
 
+    /** In-memory cache of session metadata, avoiding index file I/O on every read. */
+    private val metaCache = ConcurrentHashMap<String, SessionMeta>()
+    private var cacheLoaded = false
+
     init {
         sessionsDir.createDirectories()
+    }
+
+    /** Ensure the cache is populated from disk (called once lazily). */
+    private fun ensureCacheLoaded() {
+        if (!cacheLoaded) {
+            metaCache.putAll(loadIndex())
+            cacheLoaded = true
+        }
     }
 
     // ---- Index persistence ----
@@ -70,9 +83,13 @@ class JsonlSessionProvider(private val sessionsDir: Path) : CompactableSessionSt
      */
     private suspend fun <T> withIndexWrite(block: (MutableMap<String, SessionMeta>) -> T): T =
         indexMutex.withLock {
-            val index = loadIndex()
+            ensureCacheLoaded()
+            val index = HashMap(metaCache)
             val result = block(index)
+            // Write-through: update both disk and cache
             saveIndex(index)
+            metaCache.clear()
+            metaCache.putAll(index)
             result
         }
 
@@ -102,18 +119,19 @@ class JsonlSessionProvider(private val sessionsDir: Path) : CompactableSessionSt
         }
 
     override suspend fun getSession(key: SessionKey): SessionMeta? {
-        val index = loadIndex()
-        return index[key.raw]
+        ensureCacheLoaded()
+        return metaCache[key.raw]
     }
 
     override suspend fun listSessions(): List<SessionMeta> {
-        return loadIndex().values.toList()
+        ensureCacheLoaded()
+        return metaCache.values.toList()
     }
 
     override suspend fun appendMessage(key: SessionKey, message: SessionMessage): Unit =
         writeLock.withLock(key) {
-            // Read the current meta (safe non-index-lock read for fileId lookup)
-            val meta = loadIndex()[key.raw] ?: error("Session not found: ${key.raw}")
+            ensureCacheLoaded()
+            val meta = metaCache[key.raw] ?: error("Session not found: ${key.raw}")
 
             val line = json.encodeToString(SessionMessage.serializer(), message)
             transcriptPath(meta.fileId).appendText(line + "\n")
@@ -139,7 +157,8 @@ class JsonlSessionProvider(private val sessionsDir: Path) : CompactableSessionSt
         }
 
     override suspend fun getHistory(key: SessionKey, limit: Int?): List<SessionMessage> {
-        val meta = loadIndex()[key.raw] ?: error("Session not found: ${key.raw}")
+        ensureCacheLoaded()
+        val meta = metaCache[key.raw] ?: error("Session not found: ${key.raw}")
         val path = transcriptPath(meta.fileId)
         if (!path.exists()) return emptyList()
 
@@ -191,7 +210,8 @@ class JsonlSessionProvider(private val sessionsDir: Path) : CompactableSessionSt
         summary: SessionMessage.CompactionSummary,
         remaining: List<SessionMessage>
     ): Unit = writeLock.withLock(key) {
-        val meta = loadIndex()[key.raw] ?: error("Session not found: ${key.raw}")
+        ensureCacheLoaded()
+        val meta = metaCache[key.raw] ?: error("Session not found: ${key.raw}")
 
         // Build new transcript: summary + remaining messages
         val newLines = buildString {
