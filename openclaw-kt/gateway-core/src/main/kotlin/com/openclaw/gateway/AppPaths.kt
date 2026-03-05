@@ -8,7 +8,12 @@ import java.nio.file.Path
  */
 object AppPaths {
 
-    /** Base directory name under user home. */
+    /**
+     * Base directory name under user home.
+     * Intentionally ".openclawk" (with trailing 'k') so the Kotlin gateway
+     * does not conflict with the JS/Node.js OpenClaw installation (".openclaw")
+     * when both are present on the same machine.
+     */
     const val BASE_DIR_NAME = ".openclawk"
 
     /** Root of all OpenClaw data: ~/.openclawk/ */
