@@ -218,6 +218,7 @@ class GatewayServer(private val config: GatewayConfig) {
     suspend fun start()                    // Bind port, init subsystems
     suspend fun stop()                     // Graceful shutdown
     fun installModule(module: GatewayModule) // Register subsystem
+    fun buildSecretResolver(config: GatewayConfig): (String) -> String?  // Config-first, env fallback
 }
 
 // RPC Router
@@ -250,14 +251,61 @@ class GatewayAuth(private val config: AuthConfig) {
     suspend fun authenticate(connectFrame: Frame.Request): WsSession?
 }
 
+// Auth Rate Limiter (per-IP, brute-force protection)
+class AuthRateLimiter(maxAttempts: Int = 5, windowMs: Long = 60_000) {
+    fun check(ip: String): RateLimitResult  // Blocked(retryAfterMs) or Allowed
+    fun reset(ip: String)                   // Call on successful auth
+    fun evictExpired()                      // Periodic cleanup
+}
+
+// Unauthorized Flood Guard (per-connection)
+class UnauthorizedFloodGuard(closeAfter: Int = 10, logEvery: Int = 100) {
+    fun register(): Decision   // Close | Log | Suppress
+    fun reset()
+}
+
+// Method Scope Registry (default-deny)
+object MethodScopeRegistry {
+    fun requiredScope(method: String): OperatorLevel  // Unknown → ADMIN
+    fun isAuthorized(method: String, clientScopes: Set<String>): Boolean
+}
+
 // Config Manager
 class ConfigManager(private val configPath: Path) {
     val current: StateFlow<GatewayConfig>  // Observable config
     fun watch()                             // Hot-reload on file change
-    fun get(path: String): JsonElement?
-    fun set(path: String, value: JsonElement)
+    fun reload(onRestartRequired: ((GatewayReloadPlan) -> Unit)? = null)
+    fun diffConfigPaths(prev: GatewayConfig, next: GatewayConfig): List<String>
+    fun buildReloadPlan(changedPaths: List<String>): GatewayReloadPlan
 }
+
+data class GatewayReloadPlan(
+    val changedPaths: List<String>,
+    val requiresRestart: Boolean,
+    val restartReasons: List<String>
+)
+
+// Presence Registry (connected client tracking)
+class PresenceRegistry {
+    val presence: StateFlow<Map<String, ClientPresence>>  // Atomic updates via update{}
+    fun register(connId: String, presence: ClientPresence)
+    fun unregister(connId: String)
+    fun snapshot(): List<ClientPresence>
+    fun count(): Int
+}
+
+data class ClientPresence(
+    val connId: String,
+    val role: String,
+    val scopes: Set<String>,
+    val ip: String?,
+    val connectedAt: Instant
+)
 ```
+
+**WS Frame Dispatch:** Each incoming frame is launched as a child coroutine via `SupervisorJob` + `scope.launch`. A slow `chat.run` (streaming for 30s+) does not block `chat.abort` or heartbeat pings on the same connection. Individual request failures do not kill the connection.
+
+**Handshake Timeout:** `withTimeoutOrNull(15_000L)` on the initial `connect.hello` exchange. Silent connections are closed automatically after 15 seconds.
 
 **RPC Method Domains:**
 | Domain | Methods | Handler Module |
@@ -872,18 +920,25 @@ class EmbeddingCache(private val cacheDir: Path)
 
 ## 5. Security Model
 
-| Layer | Mechanism |
-|-------|-----------|
-| **Network** | Gateway binds `127.0.0.1` by default — never exposed to internet |
-| **Transport** | Token or password required for all WebSocket connections |
-| **Handshake** | `connect.hello` frame required as first message, identifies client role; response includes `setupRequired` + `onboardingPhase` so the client knows whether to show onboarding UI or chat |
-| **Scopes** | Operator levels: admin, write, read, approvals — each limits available RPC methods |
-| **DM Pairing** | Unknown senders get pairing code — must be approved before messages are processed |
-| **Tool Policy** | 6-stage cascading pipeline (profile → global → provider → agent → sandbox → owner-only) |
-| **Sandbox** | Optional Docker isolation for tool execution with configurable workspace access |
-| **SSRF Protection** | `fetchWithSsrfGuard` prevents webhooks/cron from hitting internal services |
-| **Secrets** | CLI output redacts sensitive config values; secret detection in pre-commit hooks |
-| **Auth Profiles** | `auth-profiles.json` — rotate API keys, OAuth tokens, manage cooldowns |
+| Layer | Mechanism | Status |
+|-------|-----------|--------|
+| **Network** | Gateway binds `127.0.0.1` by default — never exposed to internet | Planned |
+| **Transport** | Token or password required for all WebSocket connections | ✅ Implemented |
+| **Handshake** | `connect.hello` frame required as first message; 15s timeout via `withTimeoutOrNull` — idle connections auto-closed | ✅ Implemented |
+| **Flood Guard** | `UnauthorizedFloodGuard` — connection closed after 10 consecutive unauthorized requests; log suppression every 100th | ✅ Implemented |
+| **Rate Limiter** | `AuthRateLimiter` — per-IP failure tracking; blocked clients receive `retryAfterMs`; window-based with atomic `ConcurrentHashMap.compute` updates | ✅ Implemented |
+| **Scopes** | `MethodScopeRegistry` — every RPC method mapped to required `OperatorLevel`; unknown methods default to ADMIN (default-deny); `write` implies `read` | ✅ Implemented |
+| **Config Round-Trip** | `ConfigWriter` — `agents.list`, `tools`, `byProvider` sections now fully rendered; newline escaping in all quoted values | ✅ Implemented |
+| **Secret Resolution** | `buildSecretResolver()` — checks `GatewayConfig.secrets` first, env vars as fallback; API keys set via UI now actually reach `ProviderFactory` | ✅ Implemented |
+| **Presence** | `PresenceRegistry` — tracks all connected clients in `StateFlow<Map>`; snapshot included in `hello-ok` response | ✅ Implemented |
+| **DM Pairing** | Unknown senders get pairing code — must be approved before messages are processed | Planned (Epic 5.2) |
+| **Tool Policy** | 6-stage cascading pipeline (profile → global → provider → agent → sandbox → owner-only) | ✅ Implemented |
+| **Sandbox** | Optional Docker isolation for tool execution with configurable workspace access | Planned (Epic 14.2) |
+| **SSRF Protection** | `fetchWithSsrfGuard` prevents webhooks/cron from hitting internal services | Planned (Epic 14.3) |
+| **Origin Check** | Browser client origin validation (CSRF protection) | Planned (Epic 14.1) |
+| **Device Identity** | Cryptographic device ID derived from public key (currently random UUID per connection) | Planned (Epic 14.1) |
+| **Secrets** | CLI output redacts sensitive config values; secret detection in pre-commit hooks | Planned (Epic 14.3) |
+| **Auth Profiles** | `auth-profiles.json` — rotate API keys, OAuth tokens, manage cooldowns | Planned |
 
 ---
 

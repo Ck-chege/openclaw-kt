@@ -89,6 +89,22 @@
   - [x] Implement `setup.status` / `setup.configure` / `setup.complete` RPC handlers
   - [x] Wire `ModelRegistry` apiKeyResolver to check config secrets before env vars
 
+- [x] **2.7 Gateway security hardening (Phase 1)**
+  > Implements core security mechanisms from JS reference gateway. See GATEWAY-LESSONS.md for full analysis.
+  - [x] Fix `SessionRegistry.pushEvent` — auto-unregister dead WS sessions on send failure (was silently leaking)
+  - [x] Fix `ConfigWriter.quote()` — escape `\n` / `\r` (broken HOCON on tokens with newlines)
+  - [x] Fix `ConfigWriter.renderHocon` — add `agents.list` and full `tools` section rendering (config round-trips were lossy)
+  - [x] Implement `UnauthorizedFloodGuard` — close WS connection after 10 consecutive unauthorized requests; suppress log spam (log every 100th)
+  - [x] Implement `AuthRateLimiter` — per-IP failure tracking with configurable window; returns `retryAfterMs` on block; `ConcurrentHashMap.compute` for lock-free updates
+  - [x] Implement `MethodScopeRegistry` — maps every known RPC method to required `OperatorLevel`; unknown methods default to ADMIN (default-deny); `write` implies `read`
+  - [x] Implement `ConfigManager.diffConfigPaths()` — recursive structural diff of config objects; returns list of changed dotted paths
+  - [x] Implement `GatewayReloadPlan` — classifies changed paths as hot-swap vs restart-required; `HOT` and `HYBRID` reload modes are now meaningfully distinct
+  - [x] Implement concurrent WS frame dispatch — each incoming frame launched as child coroutine via `SupervisorJob` + `scope.launch`; abort/steer no longer blocked by running stream
+  - [x] Implement handshake timeout — `withTimeoutOrNull(15_000L)` on connect handshake; idle connections closed automatically
+  - [x] Implement `PresenceRegistry` — tracks connected client metadata (role, scopes, IP, connectedAt) in `MutableStateFlow<Map>`; atomic `update {}` operations; `snapshot()` for `hello-ok` response
+  - [x] Implement config-first secret resolver — `buildSecretResolver()` checks `GatewayConfig.secrets` first, falls back to env vars; fixes API keys configured via UI being silently ignored
+  - [x] Write tests for all of the above (AuthRateLimiterTest, MethodScopeRegistryTest, UnauthorizedFloodGuardTest, PresenceRegistryTest, SessionRegistryTest, ConfigManagerTest, WebSocketHandlerTest extensions)
+
 ---
 
 ### Epic 3: Agent Engine
@@ -546,8 +562,12 @@
 - [ ] **14.1 Network & auth hardening**
   - [ ] Enforce loopback binding by default (`127.0.0.1`)
   - [ ] Implement token rotation support in auth profiles
-  - [ ] Implement rate limiting per client role (Ktor RateLimit plugin)
+  - [x] Implement per-IP auth rate limiting (`AuthRateLimiter` — done in Story 2.7)
+  - [x] Implement unauthorized request flood guard (`UnauthorizedFloodGuard` — done in Story 2.7)
+  - [x] Implement WS handshake timeout (done in Story 2.7)
   - [ ] Implement graceful shutdown: SIGTERM → drain active sessions → close WS → persist state
+  - [ ] Implement origin check for browser clients (CSRF protection — block cross-origin WS from non-allowlisted domains)
+  - [ ] Implement device identity from public key (cryptographic binding — `deriveDeviceIdFromPublicKey`; currently uses random UUID per connection)
 
 - [ ] **14.2 Tool sandboxing**
   - [ ] Implement workspace boundary enforcement for filesystem tools
