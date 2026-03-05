@@ -122,8 +122,9 @@ class WebSocketHandler(
             // Step 3: Extract token and role, authenticate
             val providedToken = firstFrame.params["token"]?.jsonPrimitive?.contentOrNull
             val role = firstFrame.params["role"]?.jsonPrimitive?.contentOrNull
+            val deviceId = firstFrame.params["deviceId"]?.jsonPrimitive?.contentOrNull
 
-            session = auth.authenticate(providedToken, role)
+            session = auth.authenticate(providedToken, role, deviceId)
 
             if (session == null) {
                 // Step 3b: Auth failed

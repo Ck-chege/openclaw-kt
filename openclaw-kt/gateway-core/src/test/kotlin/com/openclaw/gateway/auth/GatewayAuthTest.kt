@@ -57,6 +57,27 @@ class GatewayAuthTest {
     }
 
     @Test
+    fun `node role uses provided deviceId`() {
+        val auth = GatewayAuth(token = null, password = null)
+        val session = auth.authenticate(null, "node", deviceId = "my-device-123")
+
+        session.shouldNotBeNull()
+        val node = session.role.shouldBeInstanceOf<ClientRole.Node>()
+        node.deviceId shouldBe "my-device-123"
+    }
+
+    @Test
+    fun `node role generates deviceId when not provided`() {
+        val auth = GatewayAuth(token = null, password = null)
+        val session = auth.authenticate(null, "node")
+
+        session.shouldNotBeNull()
+        val node = session.role.shouldBeInstanceOf<ClientRole.Node>()
+        node.deviceId.shouldNotBeNull()
+        node.deviceId.length shouldBe 36 // UUID format
+    }
+
+    @Test
     fun `unknown role returns null`() {
         val auth = GatewayAuth(token = null, password = null)
         val session = auth.authenticate(null, "superadmin")

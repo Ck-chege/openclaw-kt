@@ -45,7 +45,7 @@ class GatewayAuth(private val token: String?, private val password: String?) {
      * @param role The requested role string: "operator", "node", or "webchat".
      * @return A [WsSession] on success, or `null` if authentication fails.
      */
-    fun authenticate(providedToken: String?, role: String?): WsSession? {
+    fun authenticate(providedToken: String?, role: String?, deviceId: String? = null): WsSession? {
         // If no auth is configured, allow all connections
         val authRequired = token != null || password != null
 
@@ -63,7 +63,7 @@ class GatewayAuth(private val token: String?, private val password: String?) {
 
         val clientRole = when (role?.lowercase()) {
             "operator" -> ClientRole.Operator(level = OperatorLevel.WRITE)
-            "node" -> ClientRole.Node(deviceId = UUID.randomUUID().toString())
+            "node" -> ClientRole.Node(deviceId = deviceId ?: UUID.randomUUID().toString())
             "webchat" -> ClientRole.WebChat
             null -> ClientRole.Operator(level = OperatorLevel.WRITE)
             else -> {
