@@ -3,6 +3,7 @@ package com.openclaw.gateway
 import com.openclaw.gateway.config.AuthConfig
 import com.openclaw.gateway.config.GatewayConfig
 import com.openclaw.gateway.config.GatewaySettings
+import com.openclaw.gateway.config.SecretsConfig
 import com.openclaw.gateway.ws.SetupStatus
 import com.openclaw.protocol.frames.Frame
 import io.kotest.matchers.shouldBe
@@ -254,6 +255,57 @@ class GatewayServerTest {
             val parsed = Frame.deserialize(resp) as Frame.Response
             parsed.ok shouldBe true
             parsed.id shouldBe "hello-auth"
+        }
+    }
+
+    @Nested
+    inner class SecretResolver {
+
+        @Test
+        fun `config key takes precedence over env var`() {
+            val config = GatewayConfig(
+                secrets = SecretsConfig(anthropicApiKey = "from-config")
+            )
+            val resolver = buildSecretResolver(config)
+            resolver("ANTHROPIC_API_KEY") shouldBe "from-config"
+        }
+
+        @Test
+        fun `blank config key falls back to env`() {
+            val config = GatewayConfig(
+                secrets = SecretsConfig(anthropicApiKey = "")
+            )
+            val resolver = buildSecretResolver(config)
+            // Will fall back to System.getenv which may or may not be set;
+            // at minimum it should not return the blank string
+            val result = resolver("ANTHROPIC_API_KEY")
+            // If env var is not set, result is null; if set, it's the env value
+            // Either way, it should not be blank
+            if (result != null) {
+                (result.isNotBlank()) shouldBe true
+            }
+        }
+
+        @Test
+        fun `null config key falls back to env`() {
+            val config = GatewayConfig(
+                secrets = SecretsConfig(anthropicApiKey = null)
+            )
+            val resolver = buildSecretResolver(config)
+            // Same as above — falls back to env
+            val result = resolver("ANTHROPIC_API_KEY")
+            if (result != null) {
+                (result.isNotBlank()) shouldBe true
+            }
+        }
+
+        @Test
+        fun `unknown env key falls back to System getenv`() {
+            val config = GatewayConfig()
+            val resolver = buildSecretResolver(config)
+            // PATH is almost always set
+            val result = resolver("PATH")
+            (result != null) shouldBe true
         }
     }
 }

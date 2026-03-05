@@ -162,7 +162,77 @@ class ConfigWriterTest {
     }
 
     @Nested
+    inner class AgentsListAndTools {
+
+        @Test
+        fun `writes and parses agents list round-trip`() {
+            val config = GatewayConfig(
+                agents = AgentsConfig(
+                    defaults = AgentDefaults(model = "openai:gpt-4o"),
+                    list = listOf(
+                        AgentEntry(id = "agent-1", model = "anthropic:claude-sonnet-4"),
+                        AgentEntry(id = "agent-2", workspace = "/tmp/workspace")
+                    )
+                )
+            )
+            writer().write(config)
+            val content = configPath().readText()
+            content shouldContain "list = ["
+            content shouldContain "id = \"agent-1\""
+            content shouldContain "id = \"agent-2\""
+
+            val parsed = ConfigFactory.parseFile(configPath().toFile()).toGatewayConfig()
+            parsed.agents.list.size shouldBe 2
+            parsed.agents.list[0].id shouldBe "agent-1"
+            parsed.agents.list[0].model shouldBe "anthropic:claude-sonnet-4"
+            parsed.agents.list[1].id shouldBe "agent-2"
+            parsed.agents.list[1].workspace shouldBe "/tmp/workspace"
+        }
+
+        @Test
+        fun `writes tools section with sandbox and allow-deny`() {
+            val config = GatewayConfig(
+                tools = ToolsConfig(
+                    profile = "minimal",
+                    allow = listOf("bash", "read"),
+                    deny = listOf("write"),
+                    sandbox = SandboxToolConfig(enabled = true, allow = listOf("/tmp"))
+                )
+            )
+            writer().write(config)
+            val content = configPath().readText()
+            content shouldContain "tools {"
+            content shouldContain "profile = \"minimal\""
+            content shouldContain "allow = [\"bash\", \"read\"]"
+            content shouldContain "deny = [\"write\"]"
+            content shouldContain "sandbox {"
+            content shouldContain "enabled = true"
+
+            val parsed = ConfigFactory.parseFile(configPath().toFile()).toGatewayConfig()
+            parsed.tools.profile shouldBe "minimal"
+            parsed.tools.allow shouldBe listOf("bash", "read")
+            parsed.tools.deny shouldBe listOf("write")
+            parsed.tools.sandbox.enabled shouldBe true
+            parsed.tools.sandbox.allow shouldBe listOf("/tmp")
+        }
+    }
+
+    @Nested
     inner class Escaping {
+
+        @Test
+        fun `newlines in values are escaped and round-trip correctly`() {
+            val config = GatewayConfig(
+                gateway = GatewaySettings(auth = AuthConfig(token = "line1\nline2\rline3"))
+            )
+            writer().write(config)
+            val content = configPath().readText()
+            content shouldContain "\\n"
+            content shouldContain "\\r"
+
+            val parsed = ConfigFactory.parseFile(configPath().toFile()).toGatewayConfig()
+            parsed.gateway.auth.token shouldBe "line1\nline2\rline3"
+        }
 
         @Test
         fun `quotes in values are escaped`() {

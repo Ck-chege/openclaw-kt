@@ -373,4 +373,89 @@ class ConfigManagerTest {
             }
         }
     }
+
+    @Nested
+    inner class ConfigDiff {
+
+        @Test
+        fun `identical configs produce no diff`() {
+            val config = GatewayConfig()
+            diffConfigPaths(config, config) shouldBe emptyList()
+        }
+
+        @Test
+        fun `different port shows gateway port path`() {
+            val a = GatewayConfig()
+            val b = a.copy(gateway = a.gateway.copy(port = 9999))
+            val diff = diffConfigPaths(a, b)
+            diff shouldBe listOf("gateway.port")
+        }
+
+        @Test
+        fun `multiple changes reported`() {
+            val a = GatewayConfig()
+            val b = a.copy(
+                gateway = a.gateway.copy(port = 9999, bind = "0.0.0.0"),
+                agents = a.agents.copy(defaults = a.agents.defaults.copy(model = "new-model"))
+            )
+            val diff = diffConfigPaths(a, b)
+            diff shouldBe listOf("gateway.port", "gateway.bind", "agents")
+        }
+
+        @Test
+        fun `reload plan marks restart for port change`() {
+            val plan = buildReloadPlan(listOf("gateway.port", "agents"))
+            plan.requiresRestart shouldBe true
+            plan.restartReasons shouldBe listOf("gateway.port")
+        }
+
+        @Test
+        fun `reload plan does not require restart for agents-only change`() {
+            val plan = buildReloadPlan(listOf("agents"))
+            plan.requiresRestart shouldBe false
+            plan.restartReasons shouldBe emptyList()
+        }
+    }
+
+    @Nested
+    inner class ReloadWithDiff {
+
+        @Test
+        fun `reload skips update when config is unchanged`() {
+            val configFile = tempDir.resolve("openclaw.conf").createFile()
+            configFile.writeText("""
+                gateway { port = 7000 }
+            """.trimIndent())
+
+            val manager = ConfigManager(configFile)
+            manager.load()
+            manager.config.value.gateway.port shouldBe 7000
+
+            // Reload same file — no change
+            manager.reload()
+            manager.config.value.gateway.port shouldBe 7000
+        }
+
+        @Test
+        fun `reload calls onRestartRequired for port change`() {
+            val configFile = tempDir.resolve("openclaw.conf").createFile()
+            configFile.writeText("""
+                gateway { port = 7000 }
+            """.trimIndent())
+
+            val manager = ConfigManager(configFile)
+            manager.load()
+
+            configFile.writeText("""
+                gateway { port = 8000 }
+            """.trimIndent())
+
+            var capturedPlan: GatewayReloadPlan? = null
+            manager.reload { plan -> capturedPlan = plan }
+
+            capturedPlan shouldNotBe null
+            capturedPlan!!.requiresRestart shouldBe true
+            capturedPlan!!.restartReasons shouldBe listOf("gateway.port")
+        }
+    }
 }
