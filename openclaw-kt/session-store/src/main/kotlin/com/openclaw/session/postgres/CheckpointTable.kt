@@ -21,20 +21,7 @@ object CheckpointTable : Table("checkpoints") {
     override val primaryKey = PrimaryKey(sessionKey)
 }
 
-/**
- * Postgres mirror of [com.openclaw.session.SessionMeta] for fast index lookups
- * and cross-instance consistency.
- */
-object SessionMetadataTable : Table("session_metadata") {
-    val sessionKey = text("session_key")
-    val agentId = text("agent_id")
-    val channel = text("channel").nullable()
-    val modelId = text("model_id").nullable()
-    val createdAt = timestamp("created_at")
-    val lastMessage = timestamp("last_message").nullable()
-    val messageCount = integer("message_count").default(0)
-    val compactionCount = integer("compaction_count").default(0)
-    val totalTokens = long("total_tokens").default(0)
-
-    override val primaryKey = PrimaryKey(sessionKey)
-}
+// TODO: SessionMetadataTable — when Postgres becomes the primary store (instead of JSONL),
+// add a session_metadata table here to mirror SessionMeta for fast cross-instance lookups
+// and list queries without scanning the JSONL index file. Until then, SessionMeta is tracked
+// in sessions.json by JsonlSessionProvider.

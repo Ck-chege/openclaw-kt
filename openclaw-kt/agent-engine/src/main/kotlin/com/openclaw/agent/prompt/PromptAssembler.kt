@@ -67,8 +67,30 @@ object PromptAssembler {
         For destructive or irreversible operations, explain what you're about to do first.
     """.trimIndent()
 
+    /**
+     * Apply per-file character limit to each workspace file individually.
+     * Called before [enforceWorkspaceTotalCap] to ensure no single file
+     * dominates the context window even when the aggregate cap isn't hit.
+     */
+    internal fun enforcePerFileLimits(ctx: PromptContext): PromptContext {
+        val limit = ctx.limits.perFileCharLimit
+        fun cap(s: String) =
+            if (s.length > limit) TextTruncation.truncateWithMarkers(s, limit) else s
+        return ctx.copy(
+            soul      = cap(ctx.soul),
+            agents    = cap(ctx.agents),
+            user      = cap(ctx.user),
+            tools     = cap(ctx.tools),
+            memory    = cap(ctx.memory),
+            identity  = cap(ctx.identity),
+            bootstrap = cap(ctx.bootstrap),
+            heartbeat = cap(ctx.heartbeat)
+        )
+    }
+
     fun assembleSystemPrompt(ctx: PromptContext): String {
-        val capped = enforceWorkspaceTotalCap(ctx)
+        val perFileCapped = enforcePerFileLimits(ctx)
+        val capped = enforceWorkspaceTotalCap(perFileCapped)
         return when (capped.promptMode) {
             PromptMode.FULL -> assembleFullPrompt(capped)
             PromptMode.MINIMAL -> assembleMinimalPrompt(capped)

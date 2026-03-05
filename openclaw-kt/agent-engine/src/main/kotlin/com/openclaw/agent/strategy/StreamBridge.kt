@@ -20,7 +20,14 @@ class StreamBridge {
     )
     val events: Flow<AgentEvent> = _events.asSharedFlow()
 
+    // Approximate output token count: accumulate chars / 4 per delta.
+    // Koog does not expose final token counts from agent.run() — this is the best available signal.
+    private var outputTokenCount = 0
+
+    fun currentOutputTokens(): Int = outputTokenCount
+
     fun onTokenDelta(text: String) {
+        outputTokenCount += (text.length / 4).coerceAtLeast(1)
         logger.trace { "Token delta: ${text.take(50)}" }
         _events.tryEmit(AgentEvent.TokenDelta(text))
     }

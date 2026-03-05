@@ -128,23 +128,24 @@ class RunManager(
         activeRuns[sessionKey.raw]?.job?.isActive == true
 
     /**
-     * Send a steer message to an active run's queue channel.
-     * Returns true if the message was successfully enqueued, false if the session
-     * is not active or the channel is closed.
+     * Steer an active run by cancelling it so the caller can re-run with the
+     * steer message incorporated into session history.
+     *
+     * Koog's strategy graph doesn't expose a mid-run injection point, so
+     * cancel + re-run is the correct pattern. The steer message should be
+     * persisted by the caller (e.g. as a SessionMessage.SystemEvent) before
+     * the next agent.run call so it appears in conversation history.
+     *
+     * Returns true if a run was active and cancelled, false if no run was found.
      */
     suspend fun steer(sessionKey: SessionKey, message: String): Boolean {
         val run = activeRuns[sessionKey.raw] ?: return false
         if (!run.job.isActive) return false
         return try {
-            val envelope = com.openclaw.protocol.dto.InboundEnvelope(
-                channel = "internal",
-                senderId = "system",
-                senderName = "System",
-                chatId = sessionKey.raw,
-                chatType = com.openclaw.protocol.identifiers.ChatType.DM,
-                text = message
-            )
-            run.queueChannel.send(QueueAction.Steer(envelope))
+            logger.info { "Steering session ${sessionKey.raw}: cancelling run to inject message (${message.take(80)}...)" }
+            run.job.cancel()
+            run.queueChannel.close()
+            activeRuns.remove(sessionKey.raw)
             true
         } catch (e: Exception) {
             logger.warn(e) { "Failed to steer session: ${sessionKey.raw}" }

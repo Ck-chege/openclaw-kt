@@ -137,12 +137,9 @@ class AgentRuntime(
                     onLLMStreamingFrameReceived { ctx ->
                         when (val frame = ctx.streamFrame) {
                             is StreamFrame.TextDelta -> bridge.onTokenDelta(frame.text)
-                            is StreamFrame.ToolCallComplete -> {
-                                bridge.onToolCallStart(
-                                    frame.name,
-                                    JsonObject(emptyMap())
-                                )
-                            }
+                            // ToolCallComplete means the LLM finished streaming the tool call spec.
+                            // Do NOT emit ToolCallStart here — onToolCallStarting handles that
+                            // correctly with full args. Emitting here would double-fire ToolCallStart.
                             else -> {}
                         }
                     }
@@ -195,9 +192,14 @@ class AgentRuntime(
             }
 
             // 10. Emit run complete
+            val outputTokens = bridge.currentOutputTokens()
             val completeEvent = AgentEvent.RunComplete(
                 finalText = result,
-                usage = TokenUsage()
+                usage = TokenUsage(
+                    promptTokens = 0,        // Koog doesn't expose input tokens from agent.run()
+                    completionTokens = outputTokens,
+                    totalTokens = outputTokens
+                )
             )
             send(completeEvent)
 

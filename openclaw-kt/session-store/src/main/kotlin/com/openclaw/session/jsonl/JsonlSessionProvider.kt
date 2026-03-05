@@ -3,6 +3,8 @@ package com.openclaw.session.jsonl
 import com.openclaw.protocol.identifiers.SessionKey
 import com.openclaw.session.*
 import com.openclaw.session.compaction.CompactableSessionStore
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import kotlinx.datetime.Clock
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
@@ -32,6 +34,16 @@ class JsonlSessionProvider(private val sessionsDir: Path) : CompactableSessionSt
 
     private val writeLock = SessionWriteLock()
 
+    /**
+     * Global mutex protecting sessions.json index file.
+     *
+     * [SessionWriteLock] is per-session and only covers individual .jsonl files.
+     * Without this mutex, two different sessions writing simultaneously both call
+     * loadIndex(), modify their own key, and call saveIndex() — the second write
+     * silently overwrites the first session's entry.
+     */
+    private val indexMutex = Mutex()
+
     private val indexFile: Path get() = sessionsDir / "sessions.json"
 
     init {
@@ -51,6 +63,19 @@ class JsonlSessionProvider(private val sessionsDir: Path) : CompactableSessionSt
         indexFile.writeText(json.encodeToString(index))
     }
 
+    /**
+     * Load the index, apply [block], save, and return the result.
+     * Holds [indexMutex] for the entire load→mutate→save cycle to prevent
+     * two sessions from concurrently overwriting each other's index entries.
+     */
+    private suspend fun <T> withIndexWrite(block: (MutableMap<String, SessionMeta>) -> T): T =
+        indexMutex.withLock {
+            val index = loadIndex()
+            val result = block(index)
+            saveIndex(index)
+            result
+        }
+
     // ---- Helpers ----
 
     private fun transcriptPath(fileId: String): Path = sessionsDir / "$fileId.jsonl"
@@ -59,9 +84,6 @@ class JsonlSessionProvider(private val sessionsDir: Path) : CompactableSessionSt
 
     override suspend fun createSession(key: SessionKey, agentId: String, channel: String?): SessionMeta =
         writeLock.withLock(key) {
-            val index = loadIndex()
-            require(key.raw !in index) { "Session already exists: ${key.raw}" }
-
             val fileId = UUID.randomUUID().toString()
             val meta = SessionMeta(
                 key = key,
@@ -70,13 +92,12 @@ class JsonlSessionProvider(private val sessionsDir: Path) : CompactableSessionSt
                 createdAt = Clock.System.now(),
                 fileId = fileId
             )
-
-            index[key.raw] = meta
-            saveIndex(index)
-
+            withIndexWrite { index ->
+                require(key.raw !in index) { "Session already exists: ${key.raw}" }
+                index[key.raw] = meta
+            }
             // Create an empty transcript file
             transcriptPath(fileId).createFile()
-
             meta
         }
 
@@ -91,13 +112,13 @@ class JsonlSessionProvider(private val sessionsDir: Path) : CompactableSessionSt
 
     override suspend fun appendMessage(key: SessionKey, message: SessionMessage): Unit =
         writeLock.withLock(key) {
-            val index = loadIndex()
-            val meta = index[key.raw] ?: error("Session not found: ${key.raw}")
+            // Read the current meta (safe non-index-lock read for fileId lookup)
+            val meta = loadIndex()[key.raw] ?: error("Session not found: ${key.raw}")
 
             val line = json.encodeToString(SessionMessage.serializer(), message)
             transcriptPath(meta.fileId).appendText(line + "\n")
 
-            // Update metadata counters
+            // Update metadata counters under index lock
             val tokensDelta = when (message) {
                 is SessionMessage.AssistantMessage -> message.usage?.totalTokens?.toLong() ?: 0L
                 else -> 0L
@@ -106,15 +127,15 @@ class JsonlSessionProvider(private val sessionsDir: Path) : CompactableSessionSt
                 is SessionMessage.CompactionSummary -> 1
                 else -> 0
             }
-
-            val updated = meta.copy(
-                lastMessageAt = message.timestamp,
-                messageCount = meta.messageCount + 1,
-                totalTokens = meta.totalTokens + tokensDelta,
-                compactionCount = meta.compactionCount + compactionDelta
-            )
-            index[key.raw] = updated
-            saveIndex(index)
+            withIndexWrite { index ->
+                val current = index[key.raw] ?: return@withIndexWrite
+                index[key.raw] = current.copy(
+                    lastMessageAt = message.timestamp,
+                    messageCount = current.messageCount + 1,
+                    totalTokens = current.totalTokens + tokensDelta,
+                    compactionCount = current.compactionCount + compactionDelta
+                )
+            }
         }
 
     override suspend fun getHistory(key: SessionKey, limit: Int?): List<SessionMessage> {
@@ -134,40 +155,34 @@ class JsonlSessionProvider(private val sessionsDir: Path) : CompactableSessionSt
 
     override suspend fun deleteSession(key: SessionKey): Unit =
         writeLock.withLock(key) {
-            val index = loadIndex()
-            val meta = index.remove(key.raw) ?: error("Session not found: ${key.raw}")
-            saveIndex(index)
-
-            val path = transcriptPath(meta.fileId)
-            path.deleteIfExists()
+            var fileId: String? = null
+            withIndexWrite { index ->
+                val meta = index.remove(key.raw) ?: error("Session not found: ${key.raw}")
+                fileId = meta.fileId
+            }
+            fileId?.let { transcriptPath(it).deleteIfExists() }
         }
 
     override suspend fun resetSession(key: SessionKey): Unit =
         writeLock.withLock(key) {
-            val index = loadIndex()
-            val meta = index[key.raw] ?: error("Session not found: ${key.raw}")
-
-            // Truncate the transcript file
-            transcriptPath(meta.fileId).writeText("")
-
-            // Reset counters but keep session entry
-            val updated = meta.copy(
-                lastMessageAt = null,
-                messageCount = 0,
-                compactionCount = 0,
-                totalTokens = 0
-            )
-            index[key.raw] = updated
-            saveIndex(index)
+            withIndexWrite { index ->
+                val meta = index[key.raw] ?: error("Session not found: ${key.raw}")
+                transcriptPath(meta.fileId).writeText("")
+                index[key.raw] = meta.copy(
+                    lastMessageAt = null,
+                    messageCount = 0,
+                    compactionCount = 0,
+                    totalTokens = 0
+                )
+            }
         }
 
     override suspend fun updateMeta(key: SessionKey, updater: (SessionMeta) -> SessionMeta): Unit =
         writeLock.withLock(key) {
-            val index = loadIndex()
-            val meta = index[key.raw] ?: error("Session not found: ${key.raw}")
-            val updated = updater(meta)
-            index[key.raw] = updated
-            saveIndex(index)
+            withIndexWrite { index ->
+                val meta = index[key.raw] ?: error("Session not found: ${key.raw}")
+                index[key.raw] = updater(meta)
+            }
         }
 
     override suspend fun replaceWithCompaction(
@@ -176,8 +191,7 @@ class JsonlSessionProvider(private val sessionsDir: Path) : CompactableSessionSt
         summary: SessionMessage.CompactionSummary,
         remaining: List<SessionMessage>
     ): Unit = writeLock.withLock(key) {
-        val index = loadIndex()
-        val meta = index[key.raw] ?: error("Session not found: ${key.raw}")
+        val meta = loadIndex()[key.raw] ?: error("Session not found: ${key.raw}")
 
         // Build new transcript: summary + remaining messages
         val newLines = buildString {
@@ -193,13 +207,14 @@ class JsonlSessionProvider(private val sessionsDir: Path) : CompactableSessionSt
         tmp.writeText(newLines)
         java.nio.file.Files.move(tmp, target, StandardCopyOption.ATOMIC_MOVE)
 
-        // Update metadata
+        // Update metadata under index lock
         val newMessageCount = 1 + remaining.size  // summary + remaining
-        val updated = meta.copy(
-            messageCount = newMessageCount,
-            compactionCount = meta.compactionCount + 1
-        )
-        index[key.raw] = updated
-        saveIndex(index)
+        withIndexWrite { index ->
+            val current = index[key.raw] ?: return@withIndexWrite
+            index[key.raw] = current.copy(
+                messageCount = newMessageCount,
+                compactionCount = current.compactionCount + 1
+            )
+        }
     }
 }
