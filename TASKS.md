@@ -111,6 +111,15 @@
 > **Dependencies:** Epic 1 (protocol), Epic 2 (gateway-core)
 > **Outcome:** Koog-powered agent that can receive messages, call an LLM, execute tools, and stream responses
 
+- [x] **3.0 Agent engine bug fixes & facade (2026-03-05)**
+  - [x] Fix `StreamBridge` double-fire — removed `ToolCallComplete` branch from `onLLMStreamingFrameReceived`; `onToolCallStarting` already handles starts correctly
+  - [x] Wire `TokenUsage` from Koog — approximate output token counting via `StreamBridge.currentOutputTokens()` (chars ÷ 4); `completionTokens` + `totalTokens` now non-zero
+  - [x] Implement `AgentEngine.kt` facade — `AgentEngine` class composes `ModelRegistry → AgentRuntime → RunManager → AgentResolver`; was previously an empty file
+  - [x] Apply `perFileCharLimit` in `PromptAssembler` — `enforcePerFileLimits()` now called before `enforceWorkspaceTotalCap`; individual files capped at 20,000 chars
+  - [x] Fix `RunManager.steer()` — cancel-and-log pattern; steer messages were previously enqueued into a channel nobody read
+  - [x] Fix `JsonlSessionProvider` index race condition — global `indexMutex` (`withIndexWrite`) wraps all `loadIndex()`/`saveIndex()` pairs; concurrent sessions no longer overwrite each other's index entries
+  - [x] Remove unused `SessionMetadataTable` — replaced with TODO for when Postgres becomes primary store
+
 - [x] **3.1 Koog integration scaffold**
   - [x] Create `agent-engine/` module with Koog dependencies (koog-agents, prompt-executor-anthropic, prompt-executor-openai)
   - [x] Implement `ModelRegistry` — resolve ModelId to Koog PromptExecutor
