@@ -77,7 +77,8 @@ fun Config.toAgentEntry(): AgentEntry = try {
         id = getString("id"),
         model = getOrDefault("model", null) { getString(it) },
         workspace = getOrDefault("workspace", null) { getString(it) },
-        tools = if (hasPath("tools")) getConfig("tools").toAgentToolOverrides() else null
+        tools = if (hasPath("tools")) getConfig("tools").toAgentToolOverrides() else null,
+        channels = getOrDefault("channels", emptyList()) { getStringList(it) }
     )
 } catch (e: ConfigException.Missing) {
     throw ConfigError.InvalidValue("agents.list[].id", "required string (agent id)", e)

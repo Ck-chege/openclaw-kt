@@ -53,7 +53,9 @@ data class AgentEntry(
     val id: String,
     val model: String? = null,
     val workspace: String? = null,
-    val tools: AgentToolOverrides? = null
+    val tools: AgentToolOverrides? = null,
+    /** Explicit channel bindings. When non-empty, only messages from these channels route to this agent. */
+    val channels: List<String> = emptyList()
 )
 
 @Serializable

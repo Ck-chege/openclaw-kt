@@ -81,6 +81,7 @@ class ConfigWriter(private val configPath: Path) {
                     appendLine("            id = ${quote(entry.id)}")
                     entry.model?.let { appendLine("            model = ${quote(it)}") }
                     entry.workspace?.let { appendLine("            workspace = ${quote(it)}") }
+                    if (entry.channels.isNotEmpty()) appendLine("            channels = [${entry.channels.joinToString(", ") { quote(it) }}]")
                     appendLine("        }")
                 }
                 appendLine("    ]")

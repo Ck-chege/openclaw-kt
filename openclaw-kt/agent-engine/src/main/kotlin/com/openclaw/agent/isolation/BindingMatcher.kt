@@ -21,12 +21,21 @@ class BindingMatcher {
 
     /**
      * Find the first agent entry matching by channel name.
-     * This is for channel-based routing where the agent config list
-     * might have entries intended for specific channels.
+     * Prefers explicit `channels` bindings on AgentEntry; falls back to
+     * id-match only for entries with no explicit channel bindings.
      */
     fun matchByChannel(config: AgentsConfig, channel: String): AgentEntry? {
-        // For now, we support matching by agent id that equals the channel name
-        // Future: add explicit channel bindings to AgentEntry
-        return config.list.firstOrNull { it.id == channel }
+        // Prefer agents with explicit channel bindings
+        val explicit = config.list.firstOrNull { it.channels.contains(channel) }
+        if (explicit != null) {
+            logger.debug { "Matched agent by channel binding: ${explicit.id} for channel=$channel" }
+            return explicit
+        }
+        // Fall back to id-match only for entries without explicit channels
+        val fallback = config.list.firstOrNull { it.channels.isEmpty() && it.id == channel }
+        if (fallback != null) {
+            logger.debug { "Matched agent by id fallback: ${fallback.id} for channel=$channel" }
+        }
+        return fallback
     }
 }
