@@ -20,8 +20,3 @@ object CheckpointTable : Table("checkpoints") {
 
     override val primaryKey = PrimaryKey(sessionKey)
 }
-
-// TODO: SessionMetadataTable — when Postgres becomes the primary store (instead of JSONL),
-// add a session_metadata table here to mirror SessionMeta for fast cross-instance lookups
-// and list queries without scanning the JSONL index file. Until then, SessionMeta is tracked
-// in sessions.json by JsonlSessionProvider.
