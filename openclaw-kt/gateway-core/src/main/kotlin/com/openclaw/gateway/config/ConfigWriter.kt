@@ -74,6 +74,43 @@ class ConfigWriter(private val configPath: Path) {
                 if (d.maxConcurrentRuns != dd.maxConcurrentRuns) appendLine("        maxConcurrentRuns = ${d.maxConcurrentRuns}")
                 appendLine("    }")
             }
+            if (ag.list.isNotEmpty()) {
+                appendLine("    list = [")
+                for (entry in ag.list) {
+                    appendLine("        {")
+                    appendLine("            id = ${quote(entry.id)}")
+                    entry.model?.let { appendLine("            model = ${quote(it)}") }
+                    entry.workspace?.let { appendLine("            workspace = ${quote(it)}") }
+                    appendLine("        }")
+                }
+                appendLine("    ]")
+            }
+            appendLine("}")
+            appendLine()
+        }
+
+        // Tools section
+        val tools = config.tools
+        val toolsDefaults = defaults.tools
+        if (tools != toolsDefaults) {
+            appendLine("tools {")
+            if (tools.profile != toolsDefaults.profile) appendLine("    profile = ${quote(tools.profile)}")
+            if (tools.allow.isNotEmpty()) appendLine("    allow = [${tools.allow.joinToString(", ") { quote(it) }}]")
+            if (tools.deny.isNotEmpty()) appendLine("    deny = [${tools.deny.joinToString(", ") { quote(it) }}]")
+            if (tools.sandbox != toolsDefaults.sandbox) {
+                appendLine("    sandbox {")
+                appendLine("        enabled = ${tools.sandbox.enabled}")
+                if (tools.sandbox.allow.isNotEmpty()) appendLine("        allow = [${tools.sandbox.allow.joinToString(", ") { quote(it) }}]")
+                if (tools.sandbox.deny.isNotEmpty()) appendLine("        deny = [${tools.sandbox.deny.joinToString(", ") { quote(it) }}]")
+                appendLine("    }")
+            }
+            if (tools.mcp.isNotEmpty()) {
+                appendLine("    mcp = [")
+                for (mcp in tools.mcp) {
+                    appendLine("        { name = ${quote(mcp.name)}, transport = ${quote(mcp.transport)}, command = ${quote(mcp.command ?: "")}, enabled = ${mcp.enabled} }")
+                }
+                appendLine("    ]")
+            }
             appendLine("}")
             appendLine()
         }
@@ -109,5 +146,6 @@ class ConfigWriter(private val configPath: Path) {
         }
     }
 
-    private fun quote(value: String): String = "\"${value.replace("\\", "\\\\").replace("\"", "\\\"")}\""
+    private fun quote(value: String): String =
+        "\"${value.replace("\\", "\\\\").replace("\"", "\\\"").replace("\n", "\\n").replace("\r", "\\r")}\""
 }
