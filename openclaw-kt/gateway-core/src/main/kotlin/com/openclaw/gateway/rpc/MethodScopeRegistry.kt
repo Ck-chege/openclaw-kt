@@ -44,14 +44,26 @@ object MethodScopeRegistry {
     fun requiredScope(method: String): OperatorLevel =
         registry[method] ?: OperatorLevel.ADMIN
 
+    /** Methods accessible with the "chat" scope (WebChat clients). */
+    private val chatScopeMethods = setOf(
+        "health", "status", "chat.send", "chat.abort",
+        "sessions.list", "sessions.get", "sessions.history",
+        "models.list"
+    )
+
     /**
      * Returns true if [clientScopes] grants permission for [method].
      *
      * ADMIN implies all.
      * WRITE implies READ.
+     * "chat" scope grants access to a limited set of chat-related methods (WebChat clients).
      */
     fun isAuthorized(method: String, clientScopes: Set<String>): Boolean {
         if (clientScopes.contains("admin") || clientScopes.contains(OperatorLevel.ADMIN.name.lowercase())) return true
+
+        // "chat" scope: allow a curated subset of methods for WebChat clients
+        if (clientScopes.contains("chat") && method in chatScopeMethods) return true
+
         val required = requiredScope(method)
         return when (required) {
             OperatorLevel.READ -> clientScopes.any { it in setOf("read", "write") }

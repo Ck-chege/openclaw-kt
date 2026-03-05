@@ -56,6 +56,18 @@ class RunManager(
 
         val events = runtime.executeRun(sessionKey, message, workspace, modelId, channelName, chatType, toolRegistry, skillsXml, toolDescriptions)
 
+        // Create RunSession and register BEFORE launching the job to avoid
+        // a race where the job completes before activeRuns is populated,
+        // leaving a dead entry in the map.
+        val runSession = RunSession(
+            sessionKey = sessionKey,
+            job = Job(), // placeholder — replaced below
+            events = events,
+            queueChannel = queueChannel,
+            startTimeMs = System.currentTimeMillis()
+        )
+        activeRuns[sessionKey.raw] = runSession
+
         val job = scope.launch {
             mutex.withLock {
                 logger.info { "Acquired mutex for session: ${sessionKey.raw}" }
@@ -74,14 +86,8 @@ class RunManager(
             }
         }
 
-        val runSession = RunSession(
-            sessionKey = sessionKey,
-            job = job,
-            events = events,
-            queueChannel = queueChannel,
-            startTimeMs = System.currentTimeMillis()
-        )
-        activeRuns[sessionKey.raw] = runSession
+        // Update with actual job so stopRun/steer can cancel it
+        activeRuns[sessionKey.raw] = runSession.copy(job = job)
 
         return events
     }

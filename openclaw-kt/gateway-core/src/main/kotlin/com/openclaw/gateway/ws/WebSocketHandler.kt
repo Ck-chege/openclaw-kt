@@ -57,8 +57,10 @@ class WebSocketHandler(
         // Node sessions mirror JS behavior: bypass gateway method scope checks.
         if (session.role is ClientRole.Node) return true
 
-        // Only operator sessions can use scope-based gateway method authorization.
-        if (session.role !is ClientRole.Operator) return false
+        // Operator and WebChat sessions use scope-based authorization.
+        // WebChat is effectively an operator with limited scopes (mirrors JS where
+        // webchat = operator with {"chat"} scope). Other unknown roles are rejected.
+        if (session.role !is ClientRole.Operator && session.role !is ClientRole.WebChat) return false
 
         val normalizedScopes = session.scopes.map { it.lowercase() }.toSet()
         if ("admin" in normalizedScopes) return true

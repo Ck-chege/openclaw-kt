@@ -2,6 +2,8 @@ package com.openclaw.gateway.config
 
 import io.github.oshai.kotlinlogging.KotlinLogging
 import java.nio.file.Path
+import java.nio.file.attribute.PosixFilePermission
+import kotlin.io.path.setPosixFilePermissions
 import kotlin.io.path.writeText
 
 private val logger = KotlinLogging.logger {}
@@ -22,6 +24,16 @@ class ConfigWriter(private val configPath: Path) {
     fun write(config: GatewayConfig) {
         val hocon = renderHocon(config)
         configPath.writeText(hocon)
+        // Restrict file permissions when secrets are present (owner read/write only)
+        if (config.secrets != GatewayConfig().secrets) {
+            try {
+                configPath.setPosixFilePermissions(
+                    setOf(PosixFilePermission.OWNER_READ, PosixFilePermission.OWNER_WRITE)
+                )
+            } catch (_: UnsupportedOperationException) {
+                // Non-POSIX filesystem (Windows) — skip permission restriction
+            }
+        }
         logger.info { "Config written to $configPath" }
     }
 
@@ -116,7 +128,8 @@ class ConfigWriter(private val configPath: Path) {
             appendLine()
         }
 
-        // Secrets section
+        // Secrets section — keys are written to the config file (matches JS behavior).
+        // The config file should have restrictive permissions (600) to limit exposure.
         val sec = config.secrets
         if (sec != defaults.secrets) {
             appendLine("secrets {")
