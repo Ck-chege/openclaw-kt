@@ -26,3 +26,9 @@ node_modules/
 
 # Logs
 *.log
+
+# Claude Code
+.claude/
+
+# Temp files
+d.json
