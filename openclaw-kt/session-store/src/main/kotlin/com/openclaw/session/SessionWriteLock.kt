@@ -21,4 +21,17 @@ class SessionWriteLock {
         val mutex = locks.getOrPut(key.raw) { Mutex() }
         return mutex.withLock { block() }
     }
+
+    /**
+     * Remove the per-session mutex entry when no longer needed.
+     * Safe to call repeatedly; active locks are not removed.
+     */
+    fun cleanup(key: SessionKey) {
+        val mutex = locks[key.raw] ?: return
+        if (!mutex.isLocked) {
+            locks.remove(key.raw, mutex)
+        }
+    }
+
+    internal fun lockCount(): Int = locks.size
 }

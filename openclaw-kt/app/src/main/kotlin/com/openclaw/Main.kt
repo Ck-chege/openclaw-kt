@@ -81,6 +81,9 @@ fun main() {
             else -> System.getenv(envVar)
         }
     })
+    // ProviderFactory self-heals: compares cached key vs current on each getExecutor().
+    // No explicit config-flow watcher needed here. AgentEngine wires one when used.
+
     // Compaction + pre-compaction memory flush
     val compactionTrigger = (sessionStore as? CompactableSessionStore)?.let { compactable ->
         val summarizer = { messages: List<com.openclaw.session.SessionMessage> ->

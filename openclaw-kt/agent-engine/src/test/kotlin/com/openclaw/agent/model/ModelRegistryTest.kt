@@ -83,6 +83,21 @@ class ModelRegistryTest {
         }
 
         @Test
+        fun `resolveExecutor recreates provider executor when API key changes`() {
+            val keys = mutableMapOf(
+                "ANTHROPIC_API_KEY" to "key-v1",
+                "OPENAI_API_KEY" to "openai-key"
+            )
+            val registry = ModelRegistry(apiKeyResolver = { keys[it] })
+
+            val first = registry.resolveExecutor(ModelId("anthropic:claude-sonnet-4-5"))
+            keys["ANTHROPIC_API_KEY"] = "key-v2"
+            val second = registry.resolveExecutor(ModelId("anthropic:claude-sonnet-4-5"))
+
+            (first === second) shouldBe false
+        }
+
+        @Test
         fun `resolveExecutor missing API key throws MissingApiKey`() {
             val registry = registryWithKeys() // no keys at all
             val error = assertThrows<ModelRegistryError.MissingApiKey> {

@@ -167,6 +167,156 @@ class GatewayServerTest {
         }
     }
 
+    @Test
+    fun `webchat role is blocked from admin rpc methods`() = testApplication {
+        val gatewayServer = createTestServer()
+        application {
+            with(gatewayServer) { configureApplication() }
+        }
+
+        val wsClient = createClient {
+            install(ClientWebSockets)
+        }
+
+        wsClient.webSocket("/") {
+            val helloFrame = Frame.Request(
+                id = "hello-webchat",
+                method = "connect.hello",
+                params = JsonObject(mapOf("role" to JsonPrimitive("webchat")))
+            )
+            send(io.ktor.websocket.Frame.Text(Frame.serialize(helloFrame)))
+            incoming.receive() // consume hello response
+
+            val blocked = Frame.Request(
+                id = "rpc-config",
+                method = "config.get",
+                params = JsonObject(emptyMap())
+            )
+            send(io.ktor.websocket.Frame.Text(Frame.serialize(blocked)))
+
+            val resp = (incoming.receive() as io.ktor.websocket.Frame.Text).readText()
+            val parsed = Frame.deserialize(resp) as Frame.Response
+            parsed.ok shouldBe false
+            parsed.id shouldBe "rpc-config"
+            (parsed.payload["error"] as JsonPrimitive).content shouldContain "Unauthorized"
+        }
+    }
+
+    @Test
+    fun `unauthorized websocket RPC returns INVALID_REQUEST`() = testApplication {
+        val gatewayServer = createTestServer()
+        gatewayServer.registerHandler("config.apply") { _, _ ->
+            buildJsonObject { put("applied", JsonPrimitive(true)) }
+        }
+        application {
+            with(gatewayServer) { configureApplication() }
+        }
+
+        val wsClient = createClient {
+            install(ClientWebSockets)
+        }
+
+        wsClient.webSocket("/") {
+            val helloFrame = Frame.Request(
+                id = "hello-webchat",
+                method = "connect.hello",
+                params = JsonObject(mapOf("role" to JsonPrimitive("webchat")))
+            )
+            send(io.ktor.websocket.Frame.Text(Frame.serialize(helloFrame)))
+            incoming.receive() // consume hello response
+
+            val unauthorizedFrame = Frame.Request(
+                id = "rpc-denied",
+                method = "config.apply",
+                params = JsonObject(emptyMap())
+            )
+            send(io.ktor.websocket.Frame.Text(Frame.serialize(unauthorizedFrame)))
+
+            val resp = (incoming.receive() as io.ktor.websocket.Frame.Text).readText()
+            val parsed = Frame.deserialize(resp) as Frame.Response
+            parsed.ok shouldBe false
+            parsed.id shouldBe "rpc-denied"
+            (parsed.payload["code"] as JsonPrimitive).content shouldBe "INVALID_REQUEST"
+            (parsed.payload["error"] as JsonPrimitive).content shouldContain "Unauthorized RPC method"
+        }
+    }
+
+    @Test
+    fun `health RPC is allowed for non-operator roles`() = testApplication {
+        val gatewayServer = createTestServer()
+        gatewayServer.registerHandler("health") { _, _ ->
+            buildJsonObject { put("status", JsonPrimitive("ok")) }
+        }
+        application {
+            with(gatewayServer) { configureApplication() }
+        }
+
+        val wsClient = createClient {
+            install(ClientWebSockets)
+        }
+
+        wsClient.webSocket("/") {
+            val helloFrame = Frame.Request(
+                id = "hello-health",
+                method = "connect.hello",
+                params = JsonObject(mapOf("role" to JsonPrimitive("webchat")))
+            )
+            send(io.ktor.websocket.Frame.Text(Frame.serialize(helloFrame)))
+            incoming.receive() // consume hello response
+
+            val healthFrame = Frame.Request(
+                id = "rpc-health",
+                method = "health",
+                params = JsonObject(emptyMap())
+            )
+            send(io.ktor.websocket.Frame.Text(Frame.serialize(healthFrame)))
+
+            val resp = (incoming.receive() as io.ktor.websocket.Frame.Text).readText()
+            val parsed = Frame.deserialize(resp) as Frame.Response
+            parsed.ok shouldBe true
+            parsed.id shouldBe "rpc-health"
+            parsed.payload["status"] shouldBe JsonPrimitive("ok")
+        }
+    }
+
+    @Test
+    fun `node role bypasses method scope authorization`() = testApplication {
+        val gatewayServer = createTestServer()
+        gatewayServer.registerHandler("config.apply") { _, _ ->
+            buildJsonObject { put("applied", JsonPrimitive(true)) }
+        }
+        application {
+            with(gatewayServer) { configureApplication() }
+        }
+
+        val wsClient = createClient {
+            install(ClientWebSockets)
+        }
+
+        wsClient.webSocket("/") {
+            val helloFrame = Frame.Request(
+                id = "hello-node",
+                method = "connect.hello",
+                params = JsonObject(mapOf("role" to JsonPrimitive("node")))
+            )
+            send(io.ktor.websocket.Frame.Text(Frame.serialize(helloFrame)))
+            incoming.receive() // consume hello response
+
+            val privilegedFrame = Frame.Request(
+                id = "rpc-node-bypass",
+                method = "config.apply",
+                params = JsonObject(emptyMap())
+            )
+            send(io.ktor.websocket.Frame.Text(Frame.serialize(privilegedFrame)))
+
+            val resp = (incoming.receive() as io.ktor.websocket.Frame.Text).readText()
+            val parsed = Frame.deserialize(resp) as Frame.Response
+            parsed.ok shouldBe true
+            parsed.id shouldBe "rpc-node-bypass"
+            parsed.payload["applied"] shouldBe JsonPrimitive(true)
+        }
+    }
+
     @Nested
     inner class SetupRequired {
 

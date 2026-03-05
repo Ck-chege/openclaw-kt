@@ -9,6 +9,8 @@ import com.openclaw.agent.runtime.CompactionTrigger
 import com.openclaw.agent.runtime.RunManager
 import com.openclaw.agent.runtime.RunStatus
 import com.openclaw.agent.workspace.WorkspaceLoader
+import com.openclaw.gateway.config.GatewayConfig
+import com.openclaw.gateway.config.SecretsConfig
 import com.openclaw.protocol.dto.AgentEvent
 import com.openclaw.protocol.identifiers.ChatType
 import com.openclaw.protocol.identifiers.ModelId
@@ -16,6 +18,9 @@ import com.openclaw.protocol.identifiers.SessionKey
 import com.openclaw.session.SessionStore
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.collect
+import kotlinx.coroutines.launch
 
 /**
  * Top-level facade for the agent engine subsystem.
@@ -36,12 +41,18 @@ import kotlinx.coroutines.flow.Flow
  */
 class AgentEngine(
     apiKeyResolver: (String) -> String? = { System.getenv(it) },
+    configFlow: StateFlow<GatewayConfig>? = null,
     sessionStore: SessionStore? = null,
     compactionTrigger: CompactionTrigger? = null,
     scope: CoroutineScope,
     timeoutMs: Long = 600_000L
 ) {
-    val modelRegistry: ModelRegistry = ModelRegistry(apiKeyResolver)
+    @Volatile
+    private var currentSecrets: SecretsConfig? = configFlow?.value?.secrets
+
+    val modelRegistry: ModelRegistry = ModelRegistry { envVar ->
+        resolveConfigSecret(envVar) ?: apiKeyResolver(envVar)
+    }
     val agentResolver: AgentResolver = AgentResolver()
 
     val runtime: AgentRuntime = AgentRuntime(
@@ -55,6 +66,26 @@ class AgentEngine(
         scope = scope,
         timeoutMs = timeoutMs
     )
+
+    init {
+        if (configFlow != null) {
+            scope.launch {
+                var previous = normalizeSecrets(configFlow.value.secrets)
+                configFlow.collect { current ->
+                    currentSecrets = current.secrets
+                    val next = normalizeSecrets(current.secrets)
+
+                    if (previous.anthropicApiKey != next.anthropicApiKey) {
+                        invalidateModelExecutors("anthropic")
+                    }
+                    if (previous.openaiApiKey != next.openaiApiKey) {
+                        invalidateModelExecutors("openai")
+                    }
+                    previous = next
+                }
+            }
+        }
+    }
 
     /**
      * Start an agent run — delegates to [RunManager.startRun].
@@ -94,6 +125,14 @@ class AgentEngine(
     fun isRunActive(sessionKey: SessionKey): Boolean = runManager.isRunActive(sessionKey)
 
     /**
+     * Invalidate cached provider executors.
+     * Call when API key material changes (config reload, secret rotation).
+     */
+    fun invalidateModelExecutors(providerPrefix: String? = null) {
+        modelRegistry.invalidateExecutorCache(providerPrefix)
+    }
+
+    /**
      * Steer an active run by cancelling it and allowing the caller to re-run
      * with the steer message appended to session history.
      *
@@ -102,4 +141,17 @@ class AgentEngine(
      */
     suspend fun steer(sessionKey: SessionKey, message: String): Boolean =
         runManager.steer(sessionKey, message)
+
+    private fun resolveConfigSecret(envVar: String): String? =
+        when (envVar) {
+            "ANTHROPIC_API_KEY" -> currentSecrets?.anthropicApiKey?.takeIf { it.isNotBlank() }
+            "OPENAI_API_KEY" -> currentSecrets?.openaiApiKey?.takeIf { it.isNotBlank() }
+            else -> null
+        }
+
+    private fun normalizeSecrets(secrets: SecretsConfig): SecretsConfig =
+        secrets.copy(
+            anthropicApiKey = secrets.anthropicApiKey?.takeIf { it.isNotBlank() },
+            openaiApiKey = secrets.openaiApiKey?.takeIf { it.isNotBlank() }
+        )
 }

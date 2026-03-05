@@ -4,6 +4,7 @@ import com.openclaw.gateway.auth.GatewayAuth
 import com.openclaw.gateway.config.GatewayConfig
 import com.openclaw.gateway.rpc.RpcHandler
 import com.openclaw.gateway.rpc.RpcRouter
+import com.openclaw.gateway.ws.MAX_FRAME_BYTES
 import com.openclaw.gateway.ws.SessionRegistry
 import com.openclaw.gateway.ws.SetupStatus
 import com.openclaw.gateway.ws.WebSocketHandler
@@ -87,7 +88,7 @@ class GatewayServer(
         install(WebSockets) {
             pingPeriod = 15.seconds
             timeout = 15.seconds
-            maxFrameSize = Long.MAX_VALUE
+            maxFrameSize = MAX_FRAME_BYTES
         }
         routing {
             get("/health") {

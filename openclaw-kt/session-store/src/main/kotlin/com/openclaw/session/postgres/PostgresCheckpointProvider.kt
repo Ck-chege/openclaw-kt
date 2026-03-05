@@ -5,6 +5,7 @@ import kotlinx.datetime.Clock
 import org.jetbrains.exposed.sql.*
 import org.jetbrains.exposed.sql.SqlExpressionBuilder.eq
 import org.jetbrains.exposed.sql.transactions.experimental.newSuspendedTransaction
+import org.jetbrains.exposed.sql.upsert
 
 /**
  * Snapshot of agent-graph state for crash recovery.
@@ -30,25 +31,12 @@ open class PostgresCheckpointProvider(private val db: Database? = null) {
      * Upsert a checkpoint for the given session.
      */
     open suspend fun saveCheckpoint(checkpoint: GraphCheckpoint): Unit = newSuspendedTransaction(db = db) {
-        val exists = CheckpointTable.selectAll()
-            .where { CheckpointTable.sessionKey eq checkpoint.sessionKey.raw }
-            .count() > 0
-
-        if (exists) {
-            CheckpointTable.update({ CheckpointTable.sessionKey eq checkpoint.sessionKey.raw }) {
-                it[graphNode] = checkpoint.graphNode
-                it[graphState] = checkpoint.graphState
-                it[messageCount] = checkpoint.messageCount
-                it[updatedAt] = Clock.System.now()
-            }
-        } else {
-            CheckpointTable.insert {
-                it[sessionKey] = checkpoint.sessionKey.raw
-                it[graphNode] = checkpoint.graphNode
-                it[graphState] = checkpoint.graphState
-                it[messageCount] = checkpoint.messageCount
-                it[updatedAt] = Clock.System.now()
-            }
+        CheckpointTable.upsert(CheckpointTable.sessionKey) {
+            it[sessionKey] = checkpoint.sessionKey.raw
+            it[graphNode] = checkpoint.graphNode
+            it[graphState] = checkpoint.graphState
+            it[messageCount] = checkpoint.messageCount
+            it[updatedAt] = Clock.System.now()
         }
     }
 

@@ -9,6 +9,7 @@ import kotlinx.serialization.json.put
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertIs
+import kotlin.test.assertNotEquals
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
@@ -88,6 +89,46 @@ class DtoTest {
         assertEquals(1, decoded.attachments.size)
         assertEquals(AttachmentType.IMAGE, decoded.attachments[0].type)
         assertEquals("photo.jpg", decoded.attachments[0].filename)
+    }
+
+    @Test
+    fun attachmentEqualityIncludesBinaryData() {
+        val left = Attachment(
+            type = AttachmentType.FILE,
+            filename = "f.bin",
+            mimeType = "application/octet-stream",
+            data = byteArrayOf(1, 2, 3)
+        )
+        val right = left.copy(data = byteArrayOf(1, 2, 4))
+
+        assertNotEquals(left, right)
+        assertNotEquals(left.hashCode(), right.hashCode())
+    }
+
+    @Test
+    fun attachment_byteArray_content_is_used_for_equality_and_hashCode() {
+        val left = Attachment(
+            type = AttachmentType.FILE,
+            data = byteArrayOf(1, 2, 3),
+            filename = "a.bin",
+            size = 3
+        )
+        val right = Attachment(
+            type = AttachmentType.FILE,
+            data = byteArrayOf(1, 2, 3),
+            filename = "a.bin",
+            size = 3
+        )
+        val different = Attachment(
+            type = AttachmentType.FILE,
+            data = byteArrayOf(9, 9, 9),
+            filename = "a.bin",
+            size = 3
+        )
+
+        assertEquals(left, right)
+        assertEquals(left.hashCode(), right.hashCode())
+        assertTrue(left != different)
     }
 
     // ------------------------------------------------------------------ //

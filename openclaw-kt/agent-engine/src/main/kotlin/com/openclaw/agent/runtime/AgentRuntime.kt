@@ -26,10 +26,13 @@ import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.channelFlow
 import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.flow.onEach
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withTimeoutOrNull
 import kotlinx.datetime.Clock
 import kotlinx.serialization.json.JsonObject
 import java.util.UUID
+import kotlin.time.Duration.Companion.seconds
 
 private val logger = KotlinLogging.logger {}
 
@@ -42,6 +45,27 @@ class AgentRuntime(
     private val sessionStore: SessionStore? = null,
     private val compactionTrigger: CompactionTrigger? = null
 ) {
+    /**
+     * Audit A-6: Koog's `agent.run()` API currently does not expose provider-reported
+     * prompt token totals. We only have a streaming-based completion estimate.
+     */
+    private fun finalTokenUsage(outputTokens: Int): TokenUsage =
+        TokenUsage(
+            promptTokens = 0,
+            completionTokens = outputTokens,
+            totalTokens = outputTokens
+        )
+
+    internal suspend fun joinBridgeJobOrCancel(bridgeJob: Job) {
+        val joined = withTimeoutOrNull(2.seconds) {
+            bridgeJob.join()
+        }
+        if (joined == null) {
+            logger.warn { "Timed out waiting for bridge coroutine to flush; cancelling bridge job" }
+            bridgeJob.cancel()
+        }
+    }
+
     /**
      * Execute an agent run. Returns a cold Flow — the run starts on collection.
      *
@@ -64,6 +88,7 @@ class AgentRuntime(
     ): Flow<AgentEvent> = channelFlow {
         val effectiveModelId = modelId ?: ModelId("anthropic:claude-sonnet-4")
         val bridge = StreamBridge()
+        var bridgeJob: Job? = null
 
         try {
             logger.info { "Starting agent run: session=${sessionKey.raw}, model=${effectiveModelId.raw}" }
@@ -170,7 +195,7 @@ class AgentRuntime(
             }
 
             // 7. Launch bridge collector — forward events to channelFlow
-            val bridgeJob = launch {
+            bridgeJob = launch {
                 bridge.events.onEach { event -> send(event) }.collect()
             }
 
@@ -196,19 +221,18 @@ class AgentRuntime(
             val outputTokens = bridge.currentOutputTokens()
             val completeEvent = AgentEvent.RunComplete(
                 finalText = result,
-                usage = TokenUsage(
-                    promptTokens = 0,        // Koog doesn't expose input tokens from agent.run()
-                    completionTokens = outputTokens,
-                    totalTokens = outputTokens
-                )
+                usage = finalTokenUsage(outputTokens)
             )
             send(completeEvent)
-
-            bridgeJob.cancel()
 
         } catch (e: Exception) {
             logger.error(e) { "Agent run failed: session=${sessionKey.raw}" }
             send(AgentEvent.RunError(e.message ?: "Unknown error", "RUN_ERROR"))
+        } finally {
+            bridge.close()
+            bridgeJob?.let { job ->
+                joinBridgeJobOrCancel(job)
+            }
         }
     }
 

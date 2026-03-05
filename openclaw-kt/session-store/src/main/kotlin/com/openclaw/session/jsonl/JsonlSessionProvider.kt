@@ -49,15 +49,20 @@ class JsonlSessionProvider(private val sessionsDir: Path) : CompactableSessionSt
 
     /** In-memory cache of session metadata, avoiding index file I/O on every read. */
     private val metaCache = ConcurrentHashMap<String, SessionMeta>()
+    @Volatile
     private var cacheLoaded = false
+    private val cacheLoadMutex = Mutex()
 
     init {
         sessionsDir.createDirectories()
     }
 
     /** Ensure the cache is populated from disk (called once lazily). */
-    private fun ensureCacheLoaded() {
-        if (!cacheLoaded) {
+    private suspend fun ensureCacheLoaded() {
+        if (cacheLoaded) return
+        cacheLoadMutex.withLock {
+            if (cacheLoaded) return@withLock
+            metaCache.clear()
             metaCache.putAll(loadIndex())
             cacheLoaded = true
         }
@@ -173,27 +178,35 @@ class JsonlSessionProvider(private val sessionsDir: Path) : CompactableSessionSt
     }
 
     override suspend fun deleteSession(key: SessionKey): Unit =
-        writeLock.withLock(key) {
-            var fileId: String? = null
-            withIndexWrite { index ->
-                val meta = index.remove(key.raw) ?: error("Session not found: ${key.raw}")
-                fileId = meta.fileId
+        try {
+            writeLock.withLock(key) {
+                var fileId: String? = null
+                withIndexWrite { index ->
+                    val meta = index.remove(key.raw) ?: error("Session not found: ${key.raw}")
+                    fileId = meta.fileId
+                }
+                fileId?.let { transcriptPath(it).deleteIfExists() }
             }
-            fileId?.let { transcriptPath(it).deleteIfExists() }
+        } finally {
+            writeLock.cleanup(key)
         }
 
     override suspend fun resetSession(key: SessionKey): Unit =
-        writeLock.withLock(key) {
-            withIndexWrite { index ->
-                val meta = index[key.raw] ?: error("Session not found: ${key.raw}")
-                transcriptPath(meta.fileId).writeText("")
-                index[key.raw] = meta.copy(
-                    lastMessageAt = null,
-                    messageCount = 0,
-                    compactionCount = 0,
-                    totalTokens = 0
-                )
+        try {
+            writeLock.withLock(key) {
+                withIndexWrite { index ->
+                    val meta = index[key.raw] ?: error("Session not found: ${key.raw}")
+                    transcriptPath(meta.fileId).writeText("")
+                    index[key.raw] = meta.copy(
+                        lastMessageAt = null,
+                        messageCount = 0,
+                        compactionCount = 0,
+                        totalTokens = 0
+                    )
+                }
             }
+        } finally {
+            writeLock.cleanup(key)
         }
 
     override suspend fun updateMeta(key: SessionKey, updater: (SessionMeta) -> SessionMeta): Unit =

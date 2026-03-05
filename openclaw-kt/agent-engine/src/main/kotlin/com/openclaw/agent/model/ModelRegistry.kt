@@ -56,6 +56,13 @@ class ModelRegistry(
         return providerFactory.getExecutorForPrefix(definition.provider)
     }
 
+    fun invalidateExecutorCache(providerPrefix: String? = null) {
+        val provider = providerPrefix?.let {
+            LLMProvider.fromPrefix(it) ?: throw ModelRegistryError.UnknownProvider(it)
+        }
+        providerFactory.invalidate(provider)
+    }
+
     fun resolveKoogModel(definition: ModelDefinition): LLModel =
         when (definition.provider) {
             "anthropic" -> resolveAnthropicModel(definition.modelName)

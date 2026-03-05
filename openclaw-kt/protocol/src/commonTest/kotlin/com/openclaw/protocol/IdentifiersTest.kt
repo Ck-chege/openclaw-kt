@@ -118,6 +118,20 @@ class IdentifiersTest {
         }
     }
 
+    @Test
+    fun sessionKey_rejects_less_than_four_segments() {
+        assertFailsWith<IllegalArgumentException> {
+            SessionKey("a:b:c")
+        }
+    }
+
+    @Test
+    fun sessionKey_rejects_only_three_segments() {
+        assertFailsWith<IllegalArgumentException> {
+            SessionKey("main:main:only-three")
+        }
+    }
+
     // ── SessionKey: serialization round-trip ────────────────────────────
 
     @Test

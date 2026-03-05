@@ -101,4 +101,17 @@ class SessionWriteLockTest : FunSpec({
             maxConcurrency.get() shouldBe 1
         }
     }
+
+    test("cleanup removes lock entry after session lifecycle end") {
+        runTest {
+            val lock = SessionWriteLock()
+            val key = SessionKey("agent:main:*:main")
+
+            lock.withLock(key) { }
+            lock.lockCount() shouldBe 1
+
+            lock.cleanup(key)
+            lock.lockCount() shouldBe 0
+        }
+    }
 })

@@ -30,14 +30,21 @@ data class Attachment(
     override fun equals(other: Any?): Boolean {
         if (this === other) return true
         if (other !is Attachment) return false
-        return type == other.type && url == other.url && mimeType == other.mimeType && filename == other.filename && size == other.size
+        return type == other.type &&
+            url == other.url &&
+            (data?.contentEquals(other.data) ?: (other.data == null)) &&
+            mimeType == other.mimeType &&
+            filename == other.filename &&
+            size == other.size
     }
 
     override fun hashCode(): Int {
         var result = type.hashCode()
         result = 31 * result + (url?.hashCode() ?: 0)
+        result = 31 * result + (data?.contentHashCode() ?: 0)
         result = 31 * result + (mimeType?.hashCode() ?: 0)
         result = 31 * result + (filename?.hashCode() ?: 0)
+        result = 31 * result + (size?.hashCode() ?: 0)
         return result
     }
 }

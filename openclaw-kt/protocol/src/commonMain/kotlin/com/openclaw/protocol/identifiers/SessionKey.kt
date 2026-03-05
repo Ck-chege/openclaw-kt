@@ -18,6 +18,8 @@ import kotlin.jvm.JvmInline
 value class SessionKey(val raw: String) {
     val agentId: String get() = raw.substringBefore(':')
     val segments: List<String> get() = raw.split(':')
+    val segmentCount: Int get() = segments.size
+    val hasMinimumSegments: Boolean get() = segmentCount >= MIN_SEGMENTS
     val channel: String? get() = segments.getOrNull(1)
     val scope: String? get() = segments.getOrNull(2)
     val peerId: String? get() {
@@ -28,10 +30,11 @@ value class SessionKey(val raw: String) {
     val isCron: Boolean get() = raw.contains(":cron:")
 
     init {
-        require(raw.contains(':')) { "Invalid session key format: $raw" }
+        require(hasMinimumSegments) { "Invalid session key format: $raw (expected at least $MIN_SEGMENTS colon-delimited segments)" }
     }
 
     companion object {
+        const val MIN_SEGMENTS = 4
         fun main(agentId: String = "main") = SessionKey("$agentId:main:*:main")
         fun dm(agentId: String, channel: String, peerId: String) = SessionKey("$agentId:$channel:*:dm:$peerId")
         fun cron(agentId: String, jobId: String) = SessionKey("$agentId:main:cron:$jobId")

@@ -2,6 +2,8 @@ package com.openclaw.gateway.ws
 
 import com.openclaw.gateway.auth.GatewayAuth
 import com.openclaw.gateway.auth.WsSession
+import com.openclaw.gateway.auth.ClientRole
+import com.openclaw.gateway.rpc.MethodScopeRegistry
 import com.openclaw.gateway.rpc.RpcRouter
 import com.openclaw.protocol.frames.Frame
 import io.github.oshai.kotlinlogging.KotlinLogging
@@ -45,8 +47,30 @@ class WebSocketHandler(
     private val sessionRegistry: SessionRegistry = SessionRegistry(),
     private val setupStatusProvider: () -> SetupStatus = { SetupStatus(false, "ONBOARDING_COMPLETE") }
 ) {
+    private fun exceedsFrameLimit(text: String): Boolean =
+        text.toByteArray(Charsets.UTF_8).size.toLong() > MAX_FRAME_BYTES
+
+    private fun authorizeGatewayMethod(session: WsSession, method: String): Boolean {
+        // Health probes are always allowed for every authenticated role.
+        if (method == "health") return true
+
+        // Node sessions mirror JS behavior: bypass gateway method scope checks.
+        if (session.role is ClientRole.Node) return true
+
+        // Only operator sessions can use scope-based gateway method authorization.
+        if (session.role !is ClientRole.Operator) return false
+
+        val normalizedScopes = session.scopes.map { it.lowercase() }.toSet()
+        if ("admin" in normalizedScopes) return true
+        return MethodScopeRegistry.isAuthorized(method, normalizedScopes)
+    }
 
     private suspend fun handleFrame(text: String, wsSession: DefaultWebSocketServerSession, session: WsSession) {
+        if (exceedsFrameLimit(text)) {
+            wsSession.close(CloseReason(CloseReason.Codes.TOO_BIG, "Frame too large"))
+            return
+        }
+
         val frame = try {
             Frame.deserialize(text)
         } catch (e: Exception) {
@@ -56,6 +80,21 @@ class WebSocketHandler(
 
         when (frame) {
             is Frame.Request -> {
+                if (!authorizeGatewayMethod(session, frame.method)) {
+                    val response = Frame.Response(
+                        id = frame.id,
+                        ok = false,
+                        payload = JsonObject(
+                            mapOf(
+                                "error" to JsonPrimitive("Unauthorized RPC method: ${frame.method}"),
+                                "code" to JsonPrimitive("INVALID_REQUEST")
+                            )
+                        )
+                    )
+                    wsSession.send(io.ktor.websocket.Frame.Text(Frame.serialize(response)))
+                    return
+                }
+
                 val responsePayload = try {
                     router.route(frame.method, frame.params, session.id)
                 } catch (e: IllegalArgumentException) {
@@ -98,6 +137,10 @@ class WebSocketHandler(
                     wsSession.close(CloseReason(CloseReason.Codes.PROTOCOL_ERROR, "Expected text frame"))
                     return
                 }
+            if (exceedsFrameLimit(firstText)) {
+                wsSession.close(CloseReason(CloseReason.Codes.TOO_BIG, "Frame too large"))
+                return
+            }
 
             val firstFrame = try {
                 Frame.deserialize(firstText)

@@ -23,24 +23,44 @@ enum class LLMProvider(val prefix: String, val envVar: String) {
 class ProviderFactory(
     private val apiKeyResolver: (String) -> String? = { System.getenv(it) }
 ) {
-    private val executorCache = ConcurrentHashMap<LLMProvider, PromptExecutor>()
+    private data class CachedExecutor(
+        val apiKey: String,
+        val executor: PromptExecutor
+    )
 
-    fun getExecutor(provider: LLMProvider): PromptExecutor =
-        executorCache.getOrPut(provider) {
-            val apiKey = apiKeyResolver(provider.envVar)
-                ?: throw ModelRegistryError.MissingApiKey(provider.prefix, provider.envVar)
+    private val executorCache = ConcurrentHashMap<LLMProvider, CachedExecutor>()
 
-            logger.info { "Creating executor for provider: ${provider.prefix}" }
-            val baseExecutor = when (provider) {
-                LLMProvider.ANTHROPIC -> simpleAnthropicExecutor(apiKey)
-                LLMProvider.OPENAI -> simpleOpenAIExecutor(apiKey)
-            }
-            RetryingExecutor(baseExecutor)
+    fun getExecutor(provider: LLMProvider): PromptExecutor {
+        val apiKey = apiKeyResolver(provider.envVar)
+            ?: throw ModelRegistryError.MissingApiKey(provider.prefix, provider.envVar)
+        val cached = executorCache[provider]
+        if (cached != null && cached.apiKey == apiKey) {
+            return cached.executor
         }
+
+        logger.info { "Creating executor for provider: ${provider.prefix}" }
+        val baseExecutor = when (provider) {
+            LLMProvider.ANTHROPIC -> simpleAnthropicExecutor(apiKey)
+            LLMProvider.OPENAI -> simpleOpenAIExecutor(apiKey)
+        }
+        val wrapped = RetryingExecutor(baseExecutor)
+        executorCache[provider] = CachedExecutor(apiKey = apiKey, executor = wrapped)
+        return wrapped
+    }
 
     fun getExecutorForPrefix(prefix: String): PromptExecutor {
         val provider = LLMProvider.fromPrefix(prefix)
             ?: throw ModelRegistryError.UnknownProvider(prefix)
         return getExecutor(provider)
     }
+
+    fun clear(provider: LLMProvider? = null) {
+        if (provider == null) {
+            executorCache.clear()
+            return
+        }
+        executorCache.remove(provider)
+    }
+
+    fun invalidate(provider: LLMProvider? = null) = clear(provider)
 }

@@ -3,6 +3,7 @@ package com.openclaw.gateway.auth
 import com.openclaw.protocol.identifiers.OperatorLevel
 import io.github.oshai.kotlinlogging.KotlinLogging
 import java.util.UUID
+import kotlin.text.Charsets.UTF_8
 
 private val logger = KotlinLogging.logger {}
 
@@ -37,6 +38,19 @@ data class WsSession(
  * authenticate.
  */
 class GatewayAuth(private val token: String?, private val password: String?) {
+    private fun constantTimeEquals(expected: String, provided: String?): Boolean {
+        if (provided == null) return false
+        val expectedBytes = expected.toByteArray(UTF_8)
+        val providedBytes = provided.toByteArray(UTF_8)
+        var diff = expectedBytes.size xor providedBytes.size
+        val maxSize = maxOf(expectedBytes.size, providedBytes.size)
+        for (i in 0 until maxSize) {
+            val left = if (i < expectedBytes.size) expectedBytes[i].toInt() else 0
+            val right = if (i < providedBytes.size) providedBytes[i].toInt() else 0
+            diff = diff or (left xor right)
+        }
+        return diff == 0
+    }
 
     /**
      * Authenticate a connecting client.
@@ -51,8 +65,8 @@ class GatewayAuth(private val token: String?, private val password: String?) {
 
         if (authRequired) {
             val valid = when {
-                token != null -> providedToken == token
-                password != null -> providedToken == password
+                token != null -> constantTimeEquals(token, providedToken)
+                password != null -> constantTimeEquals(password, providedToken)
                 else -> false
             }
             if (!valid) {
