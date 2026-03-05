@@ -12,6 +12,7 @@ data class InboundEnvelope(
     val chatId: String,
     val chatType: ChatType,
     val text: String,
+    val messageId: String? = null,
     val replyToId: String? = null,
     val attachments: List<Attachment> = emptyList(),
     val raw: JsonObject? = null

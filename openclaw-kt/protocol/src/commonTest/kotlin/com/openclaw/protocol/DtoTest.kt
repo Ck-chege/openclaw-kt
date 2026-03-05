@@ -53,6 +53,7 @@ class DtoTest {
             text = "hi"
         )
 
+        assertNull(envelope.messageId)
         assertNull(envelope.replyToId)
         assertTrue(envelope.attachments.isEmpty())
         assertNull(envelope.raw)
