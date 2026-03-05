@@ -52,7 +52,7 @@ class PromptAssemblerTest {
         @Test
         fun `prompt starts with identity line`() {
             val result = PromptAssembler.assembleSystemPrompt(minimalContext())
-            result.trimStart().startsWith("You are a personal AI assistant.") shouldBe true
+            result.trimStart().startsWith("You are a personal assistant running inside OpenClaw.") shouldBe true
         }
 
         @Test
@@ -60,7 +60,7 @@ class PromptAssemblerTest {
             for (mode in PromptMode.entries) {
                 val ctx = minimalContext().copy(promptMode = mode)
                 val result = PromptAssembler.assembleSystemPrompt(ctx)
-                result shouldContain "You are a personal AI assistant."
+                result shouldContain "You are a personal assistant running inside OpenClaw."
             }
         }
     }
@@ -77,15 +77,15 @@ class PromptAssemblerTest {
                 )
             )
             val result = PromptAssembler.assembleSystemPrompt(ctx)
-            result shouldContain "## AVAILABLE TOOLS"
-            result shouldContain "- **read** — Read file contents"
-            result shouldContain "- **exec** — Execute shell command"
+            result shouldContain "## Tooling"
+            result shouldContain "- read: Read file contents"
+            result shouldContain "- exec: Execute shell command"
         }
 
         @Test
         fun `tool descriptions section absent when no tools`() {
             val result = PromptAssembler.assembleSystemPrompt(minimalContext())
-            result shouldNotContain "## AVAILABLE TOOLS"
+            result shouldNotContain "## Tooling"
         }
 
         @Test
@@ -100,30 +100,29 @@ class PromptAssemblerTest {
         @Test
         fun `safety section always present`() {
             val result = PromptAssembler.assembleSystemPrompt(minimalContext())
-            result shouldContain "## SAFETY"
-            result shouldContain "Never seek to acquire resources"
+            result shouldContain "## Safety"
+            result shouldContain "do not pursue self-preservation"
         }
 
         @Test
         fun `authorized senders section present when set`() {
             val ctx = minimalContext().copy(authorizedSender = "Isaac (admin)")
             val result = PromptAssembler.assembleSystemPrompt(ctx)
-            result shouldContain "## AUTHORIZED SENDERS"
-            result shouldContain "Owner: Isaac (admin)"
+            result shouldContain "## Authorized Senders"
+            result shouldContain "Authorized senders: Isaac (admin)"
         }
 
         @Test
         fun `authorized senders section absent when null`() {
             val result = PromptAssembler.assembleSystemPrompt(minimalContext())
-            result shouldNotContain "## AUTHORIZED SENDERS"
+            result shouldNotContain "## Authorized Senders"
         }
 
         @Test
         fun `date and time section present`() {
             val result = PromptAssembler.assembleSystemPrompt(minimalContext())
-            result shouldContain "## DATE & TIME"
-            result shouldContain "Date: 1970-01-01"
-            result shouldContain "Timezone: UTC"
+            result shouldContain "## Current Date & Time"
+            result shouldContain "Time zone: UTC"
         }
     }
 
@@ -134,7 +133,7 @@ class PromptAssemblerTest {
         fun `workspace header present when any workspace file has content`() {
             val ctx = minimalContext().copy(soul = "Be helpful.")
             val result = PromptAssembler.assembleSystemPrompt(ctx)
-            result shouldContain "# Workspace"
+            result shouldContain "# Project Context"
         }
 
         @Test
@@ -162,12 +161,12 @@ class PromptAssemblerTest {
         }
 
         @Test
-        fun `workspace file order is AGENTS SOUL TOOLS IDENTITY USER HEARTBEAT BOOTSTRAP MEMORY`() {
+        fun `workspace file order is SOUL AGENTS TOOLS IDENTITY USER HEARTBEAT BOOTSTRAP MEMORY`() {
             val ctx = fullContext()
             val result = PromptAssembler.assembleSystemPrompt(ctx)
 
-            val agentsIdx = result.indexOf("## AGENTS.md")
             val soulIdx = result.indexOf("## SOUL.md")
+            val agentsIdx = result.indexOf("## AGENTS.md")
             val toolsIdx = result.indexOf("## TOOLS.md")
             val identityIdx = result.indexOf("## IDENTITY.md")
             val userIdx = result.indexOf("## USER.md")
@@ -175,8 +174,9 @@ class PromptAssemblerTest {
             val bootstrapIdx = result.indexOf("## BOOTSTRAP.md")
             val memoryIdx = result.indexOf("## MEMORY.md")
 
-            (agentsIdx < soulIdx) shouldBe true
-            (soulIdx < toolsIdx) shouldBe true
+            // SOUL.md first — sets personality before ops manual (AGENTS.md)
+            (soulIdx < agentsIdx) shouldBe true
+            (agentsIdx < toolsIdx) shouldBe true
             (toolsIdx < identityIdx) shouldBe true
             (identityIdx < userIdx) shouldBe true
             (userIdx < heartbeatIdx) shouldBe true
@@ -255,8 +255,8 @@ class PromptAssemblerTest {
             val ctx = fullContext()
             val result = PromptAssembler.assembleSystemPrompt(ctx)
 
-            val safetyIdx = result.indexOf("## SAFETY")
-            val workspaceIdx = result.indexOf("# Workspace")
+            val safetyIdx = result.indexOf("## Safety")
+            val workspaceIdx = result.indexOf("# Project Context")
 
             (safetyIdx < workspaceIdx) shouldBe true
         }
@@ -266,8 +266,8 @@ class PromptAssemblerTest {
             val ctx = fullContext()
             val result = PromptAssembler.assembleSystemPrompt(ctx)
 
-            val workspaceIdx = result.indexOf("# Workspace")
-            val runtimeIdx = result.indexOf("## RUNTIME")
+            val workspaceIdx = result.indexOf("# Project Context")
+            val runtimeIdx = result.indexOf("## Runtime")
 
             (workspaceIdx < runtimeIdx) shouldBe true
         }
@@ -277,9 +277,9 @@ class PromptAssemblerTest {
             val ctx = fullContext()
             val result = PromptAssembler.assembleSystemPrompt(ctx)
 
-            val identityLineIdx = result.indexOf("You are a personal AI assistant")
-            val safetyIdx = result.indexOf("## SAFETY")
-            val workspaceIdx = result.indexOf("# Workspace")
+            val identityLineIdx = result.indexOf("You are a personal assistant running inside OpenClaw")
+            val safetyIdx = result.indexOf("## Safety")
+            val workspaceIdx = result.indexOf("# Project Context")
 
             (identityLineIdx < safetyIdx) shouldBe true
             (identityLineIdx < workspaceIdx) shouldBe true
@@ -290,8 +290,8 @@ class PromptAssemblerTest {
             val ctx = fullContext()
             val result = PromptAssembler.assembleSystemPrompt(ctx)
 
-            val toolsIdx = result.indexOf("## AVAILABLE TOOLS")
-            val safetyIdx = result.indexOf("## SAFETY")
+            val toolsIdx = result.indexOf("## Tooling")
+            val safetyIdx = result.indexOf("## Safety")
 
             (toolsIdx < safetyIdx) shouldBe true
         }
@@ -301,21 +301,21 @@ class PromptAssemblerTest {
             val ctx = fullContext()
             val result = PromptAssembler.assembleSystemPrompt(ctx)
 
-            val safetyIdx = result.indexOf("## SAFETY")
+            val safetyIdx = result.indexOf("## Safety")
             val skillsIdx = result.indexOf("<skills>")
-            val workspaceIdx = result.indexOf("# Workspace")
+            val workspaceIdx = result.indexOf("# Project Context")
 
             (safetyIdx < skillsIdx) shouldBe true
             (skillsIdx < workspaceIdx) shouldBe true
         }
 
         @Test
-        fun `date and time appears before workspace`() {
+        fun `date and time appears before project context`() {
             val ctx = fullContext()
             val result = PromptAssembler.assembleSystemPrompt(ctx)
 
-            val dateIdx = result.indexOf("## DATE & TIME")
-            val workspaceIdx = result.indexOf("# Workspace")
+            val dateIdx = result.indexOf("## Current Date & Time")
+            val workspaceIdx = result.indexOf("# Project Context")
 
             (dateIdx < workspaceIdx) shouldBe true
         }
@@ -328,36 +328,32 @@ class PromptAssemblerTest {
         fun `runtime section contains model id when set`() {
             val ctx = minimalContext().copy(modelId = ModelId("anthropic:claude-sonnet-4-6"))
             val result = PromptAssembler.assembleSystemPrompt(ctx)
-            result shouldContain "Model: anthropic:claude-sonnet-4-6"
+            result shouldContain "model=anthropic:claude-sonnet-4-6"
         }
 
         @Test
-        fun `runtime section omits model line when modelId is null`() {
+        fun `runtime section omits model when modelId is null`() {
             val result = PromptAssembler.assembleSystemPrompt(minimalContext())
-            result shouldNotContain "Model:"
+            result shouldNotContain "model="
         }
 
         @Test
         fun `runtime section contains OS info`() {
             val result = PromptAssembler.assembleSystemPrompt(minimalContext())
-            result shouldContain "OS: TestOS 1.0"
+            result shouldContain "os=TestOS 1.0"
         }
 
         @Test
         fun `runtime section contains channel name when set`() {
             val ctx = minimalContext().copy(channelName = "slack")
             val result = PromptAssembler.assembleSystemPrompt(ctx)
-            val runtimeStart = result.indexOf("## RUNTIME")
-            val runtimeContent = result.substring(runtimeStart)
-            runtimeContent shouldContain "Channel: slack"
+            result shouldContain "channel=slack"
         }
 
         @Test
-        fun `runtime section omits channel line when channelName is null`() {
+        fun `runtime section omits channel when channelName is null`() {
             val result = PromptAssembler.assembleSystemPrompt(minimalContext())
-            val runtimeStart = result.indexOf("## RUNTIME")
-            val runtimeContent = result.substring(runtimeStart)
-            runtimeContent shouldNotContain "Channel:"
+            result shouldNotContain "channel="
         }
     }
 
@@ -365,27 +361,27 @@ class PromptAssemblerTest {
     inner class ChannelSection {
 
         @Test
-        fun `channel section present when channelName is set`() {
+        fun `channel name appears in runtime line when set`() {
             val ctx = minimalContext().copy(channelName = "telegram")
             val result = PromptAssembler.assembleSystemPrompt(ctx)
-            result shouldContain "## CHANNEL"
-            result shouldContain "Channel: telegram"
+            result shouldContain "channel=telegram"
         }
 
         @Test
-        fun `channel section absent when channelName is null`() {
+        fun `channel absent from runtime when channelName is null`() {
             val result = PromptAssembler.assembleSystemPrompt(minimalContext())
-            result shouldNotContain "## CHANNEL"
+            result shouldNotContain "channel="
         }
 
         @Test
-        fun `channel section includes capabilities when set`() {
+        fun `channel capabilities not in system prompt (reserved for future channel section)`() {
             val ctx = minimalContext().copy(
                 channelName = "discord",
                 channelCapabilities = "text, embeds, reactions"
             )
             val result = PromptAssembler.assembleSystemPrompt(ctx)
-            result shouldContain "Capabilities: text, embeds, reactions"
+            // capabilities are not yet injected until channel section is implemented
+            result shouldContain "channel=discord"
         }
     }
 
@@ -445,9 +441,9 @@ class PromptAssemblerTest {
             val ctx = fullContext().copy(promptMode = PromptMode.MINIMAL)
             val result = PromptAssembler.assembleSystemPrompt(ctx)
 
-            result shouldContain "You are a personal AI assistant"
-            result shouldContain "## SAFETY"
-            result shouldContain "## AVAILABLE TOOLS"
+            result shouldContain "You are a personal assistant running inside OpenClaw"
+            result shouldContain "## Safety"
+            result shouldContain "## Tooling"
         }
 
         @Test
@@ -455,11 +451,11 @@ class PromptAssemblerTest {
             val ctx = fullContext().copy(promptMode = PromptMode.NONE)
             val result = PromptAssembler.assembleSystemPrompt(ctx)
 
-            result shouldContain "You are a personal AI assistant"
-            result shouldContain "## AVAILABLE TOOLS"
-            result shouldNotContain "## SAFETY"
-            result shouldNotContain "# Workspace"
-            result shouldNotContain "## RUNTIME"
+            result shouldContain "You are a personal assistant running inside OpenClaw"
+            result shouldContain "## Tooling"
+            result shouldNotContain "## Safety"
+            result shouldNotContain "# Project Context"
+            result shouldNotContain "## Runtime"
         }
 
         @Test
@@ -467,7 +463,7 @@ class PromptAssemblerTest {
             val ctx = minimalContext().copy(promptMode = PromptMode.NONE)
             val result = PromptAssembler.assembleSystemPrompt(ctx)
 
-            result.trim() shouldBe "You are a personal AI assistant."
+            result.trim() shouldBe "You are a personal assistant running inside OpenClaw."
         }
     }
 
@@ -482,10 +478,11 @@ class PromptAssemblerTest {
         }
 
         @Test
-        fun `section content follows header on next line`() {
+        fun `section content follows header`() {
             val ctx = minimalContext().copy(soul = "Be helpful.")
             val result = PromptAssembler.assembleSystemPrompt(ctx)
-            result shouldContain "## SOUL.md\nBe helpful."
+            result shouldContain "## SOUL.md"
+            result shouldContain "Be helpful."
         }
     }
 

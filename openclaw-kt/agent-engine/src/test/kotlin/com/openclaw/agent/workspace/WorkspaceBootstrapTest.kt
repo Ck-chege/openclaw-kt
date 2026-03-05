@@ -79,7 +79,7 @@ class WorkspaceBootstrapTest {
             bootstrap().ensureWorkspace()
             val content = tempDir.resolve("SOUL.md").readText()
             content.shouldNotBeBlank()
-            content shouldContain "Soul"
+            content shouldContain "chatbot"
         }
 
         @Test

@@ -89,6 +89,7 @@ class AgentRuntime(
                 heartbeat = workspace.readHeartbeatMd(),
                 toolDescriptions = toolDescriptions,
                 skillsXml = skillsXml,
+                workspacePath = workspace.workspacePath.toString(),
                 promptMode = promptMode,
                 sessionType = sessionType,
                 channelName = channelName,
