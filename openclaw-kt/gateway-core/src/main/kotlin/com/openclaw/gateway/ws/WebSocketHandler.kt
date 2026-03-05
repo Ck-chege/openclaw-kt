@@ -7,6 +7,11 @@ import com.openclaw.protocol.frames.Frame
 import io.github.oshai.kotlinlogging.KotlinLogging
 import io.ktor.server.websocket.*
 import io.ktor.websocket.*
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.job
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withTimeoutOrNull
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.jsonPrimitive
@@ -41,12 +46,52 @@ class WebSocketHandler(
     private val setupStatusProvider: () -> SetupStatus = { SetupStatus(false, "ONBOARDING_COMPLETE") }
 ) {
 
+    private suspend fun handleFrame(text: String, wsSession: DefaultWebSocketServerSession, session: WsSession) {
+        val frame = try {
+            Frame.deserialize(text)
+        } catch (e: Exception) {
+            logger.warn(e) { "Failed to deserialize frame, ignoring" }
+            return
+        }
+
+        when (frame) {
+            is Frame.Request -> {
+                val responsePayload = try {
+                    router.route(frame.method, frame.params, session.id)
+                } catch (e: IllegalArgumentException) {
+                    JsonObject(mapOf("error" to JsonPrimitive(e.message ?: "Unknown method")))
+                } catch (e: Exception) {
+                    logger.error(e) { "Error handling RPC method: ${frame.method}" }
+                    JsonObject(mapOf("error" to JsonPrimitive("Internal error: ${e.message}")))
+                }
+
+                val isOk = !responsePayload.containsKey("error")
+                val response = Frame.Response(
+                    id = frame.id,
+                    ok = isOk,
+                    payload = responsePayload
+                )
+                wsSession.send(io.ktor.websocket.Frame.Text(Frame.serialize(response)))
+            }
+            is Frame.Response -> {
+                logger.debug { "Received unexpected response frame id=${frame.id}, ignoring" }
+            }
+            is Frame.Event -> {
+                logger.debug { "Received unexpected event frame id=${frame.id}, ignoring" }
+            }
+        }
+    }
+
     suspend fun handleSession(wsSession: DefaultWebSocketServerSession) {
         var session: WsSession? = null
 
         try {
-            // Step 1: Wait for the first frame (must be connect.hello)
-            val firstMessage = wsSession.incoming.receive()
+            // Step 1: Wait for the first frame (must be connect.hello) — handshake must arrive within 15 seconds
+            val firstMessage = withTimeoutOrNull(15_000L) { wsSession.incoming.receive() }
+                ?: run {
+                    wsSession.close(CloseReason(CloseReason.Codes.GOING_AWAY, "handshake timeout"))
+                    return
+                }
             val firstText = (firstMessage as? io.ktor.websocket.Frame.Text)?.readText()
                 ?: run {
                     logger.warn { "First frame was not a text frame, closing connection" }
@@ -108,42 +153,14 @@ class WebSocketHandler(
             sessionRegistry.register(session.id, wsSession)
             logger.info { "WebSocket session ${session.id} connected" }
 
-            // Step 5: Message loop
+            // Step 5: Message loop — concurrent dispatch via SupervisorJob
+            val authedSession: WsSession = session
+            val connScope = CoroutineScope(wsSession.coroutineContext + SupervisorJob(wsSession.coroutineContext.job))
+
             for (message in wsSession.incoming) {
                 val text = (message as? io.ktor.websocket.Frame.Text)?.readText() ?: continue
-
-                val frame = try {
-                    Frame.deserialize(text)
-                } catch (e: Exception) {
-                    logger.warn(e) { "Failed to deserialize frame, ignoring" }
-                    continue
-                }
-
-                when (frame) {
-                    is Frame.Request -> {
-                        val responsePayload = try {
-                            router.route(frame.method, frame.params, session.id)
-                        } catch (e: IllegalArgumentException) {
-                            JsonObject(mapOf("error" to JsonPrimitive(e.message ?: "Unknown method")))
-                        } catch (e: Exception) {
-                            logger.error(e) { "Error handling RPC method: ${frame.method}" }
-                            JsonObject(mapOf("error" to JsonPrimitive("Internal error: ${e.message}")))
-                        }
-
-                        val isOk = !responsePayload.containsKey("error")
-                        val response = Frame.Response(
-                            id = frame.id,
-                            ok = isOk,
-                            payload = responsePayload
-                        )
-                        wsSession.send(io.ktor.websocket.Frame.Text(Frame.serialize(response)))
-                    }
-                    is Frame.Response -> {
-                        logger.debug { "Received unexpected response frame id=${frame.id}, ignoring" }
-                    }
-                    is Frame.Event -> {
-                        logger.debug { "Received unexpected event frame id=${frame.id}, ignoring" }
-                    }
+                connScope.launch {
+                    handleFrame(text, wsSession, authedSession)
                 }
             }
         } catch (e: Exception) {
