@@ -137,6 +137,9 @@ class ConfigManager(private val configPath: Path) {
             return
         }
 
+        // Cancel any existing watcher before starting a new one
+        stopFileWatcher()
+
         val dir = configPath.parent
         if (dir == null || !dir.exists()) {
             logger.warn { "Cannot watch config directory — parent of $configPath does not exist" }
