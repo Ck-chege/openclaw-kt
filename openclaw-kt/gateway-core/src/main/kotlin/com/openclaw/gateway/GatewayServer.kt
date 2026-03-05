@@ -22,6 +22,15 @@ import kotlin.time.Duration.Companion.seconds
 
 private val logger = KotlinLogging.logger {}
 
+/** Config-first secret resolver: tries structured secrets, then falls back to env. */
+fun buildSecretResolver(config: GatewayConfig): (String) -> String? = { envKey ->
+    when (envKey) {
+        "ANTHROPIC_API_KEY" -> config.secrets.anthropicApiKey?.takeIf { it.isNotBlank() }
+        "OPENAI_API_KEY" -> config.secrets.openaiApiKey?.takeIf { it.isNotBlank() }
+        else -> null
+    } ?: System.getenv(envKey)
+}
+
 /**
  * The main gateway server entry point.
  *
