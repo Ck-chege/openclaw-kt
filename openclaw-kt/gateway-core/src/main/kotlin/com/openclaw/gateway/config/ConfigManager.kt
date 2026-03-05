@@ -14,6 +14,39 @@ import kotlin.io.path.exists
 
 private val logger = KotlinLogging.logger {}
 
+/** Returns dotted paths that changed between two configs. */
+fun diffConfigPaths(prev: GatewayConfig, next: GatewayConfig): List<String> {
+    val paths = mutableListOf<String>()
+    if (prev.gateway.port != next.gateway.port)   paths += "gateway.port"
+    if (prev.gateway.bind != next.gateway.bind)   paths += "gateway.bind"
+    if (prev.gateway.auth != next.gateway.auth)   paths += "gateway.auth"
+    if (prev.gateway.reload != next.gateway.reload) paths += "gateway.reload"
+    if (prev.agents != next.agents)               paths += "agents"
+    if (prev.secrets != next.secrets)             paths += "secrets"
+    if (prev.tools != next.tools)                 paths += "tools"
+    if (prev.memory != next.memory)               paths += "memory"
+    if (prev.cron != next.cron)                   paths += "cron"
+    return paths
+}
+
+data class GatewayReloadPlan(
+    val changedPaths: List<String>,
+    val requiresRestart: Boolean,
+    val restartReasons: List<String>
+)
+
+/** Paths that require a full gateway restart when changed. */
+private val RESTART_REQUIRED_PATHS = setOf("gateway.port", "gateway.bind", "gateway.auth")
+
+fun buildReloadPlan(changedPaths: List<String>): GatewayReloadPlan {
+    val restartReasons = changedPaths.filter { it in RESTART_REQUIRED_PATHS }
+    return GatewayReloadPlan(
+        changedPaths = changedPaths,
+        requiresRestart = restartReasons.isNotEmpty(),
+        restartReasons = restartReasons
+    )
+}
+
 /**
  * Manages configuration loading, hot-reload via file watching, and reactive updates.
  *
@@ -65,12 +98,28 @@ class ConfigManager(private val configPath: Path) {
      * Re-read the configuration file and update the [config] StateFlow.
      * On parse errors, logs a warning and retains the previous configuration.
      */
-    fun reload() {
-        logger.info { "Reloading configuration from $configPath" }
+    fun reload(onRestartRequired: ((GatewayReloadPlan) -> Unit)? = null) {
+        val previous = _config.value
         try {
             val reloaded = parseConfigFile()
-            _config.value = reloaded
-            logger.info { "Configuration reloaded successfully" }
+            val diff = diffConfigPaths(previous, reloaded)
+            if (diff.isEmpty()) {
+                logger.debug { "Config reload: no changes detected" }
+                return
+            }
+            val plan = buildReloadPlan(diff)
+            logger.info { "Config changed: ${diff.joinToString()}" }
+            if (plan.requiresRestart) {
+                logger.warn { "Config change requires restart: ${plan.restartReasons.joinToString()}" }
+                onRestartRequired?.invoke(plan)
+                if (onRestartRequired == null) {
+                    // Still apply the config — caller handles restart externally
+                    _config.value = reloaded
+                }
+            } else {
+                _config.value = reloaded
+                logger.info { "Config hot-reloaded successfully" }
+            }
         } catch (e: ConfigError) {
             logger.warn(e) { "Failed to reload config — keeping previous configuration" }
         }
