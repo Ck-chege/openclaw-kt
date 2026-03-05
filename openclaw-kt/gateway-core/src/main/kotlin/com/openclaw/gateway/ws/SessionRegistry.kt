@@ -48,7 +48,8 @@ class SessionRegistry {
             wsSession.send(io.ktor.websocket.Frame.Text(Frame.serialize(event)))
             true
         } catch (e: Exception) {
-            logger.warn(e) { "Failed to push event to session $sessionId" }
+            logger.warn(e) { "Failed to push event to session $sessionId — removing from registry" }
+            sessions.remove(sessionId)
             false
         }
     }
