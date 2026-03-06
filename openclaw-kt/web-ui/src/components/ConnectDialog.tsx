@@ -6,7 +6,7 @@ import { Wifi } from 'lucide-react';
 
 export function ConnectDialog() {
   const [token, setToken] = useState(localStorage.getItem('openclaw-token') || '');
-  const { connect } = useConnectionStore();
+  const { connect, error } = useConnectionStore();
 
   const handleConnect = () => {
     const trimmed = token.trim();
@@ -46,6 +46,11 @@ export function ConnectDialog() {
             The auth token configured in your gateway settings.
           </p>
         </div>
+        {error && (
+          <div className="text-xs text-destructive bg-destructive/10 border border-destructive/20 rounded-md p-2">
+            {error}
+          </div>
+        )}
         <Button className="w-full h-10" onClick={handleConnect}>
           Connect
         </Button>

@@ -1,7 +1,7 @@
 import type { Frame, FrameResponse, FrameEvent } from '@/types/protocol';
 
 type EventHandler = (payload: Record<string, unknown>) => void;
-type ConnectionHandler = (state: 'connecting' | 'connected' | 'disconnected') => void;
+type ConnectionHandler = (state: 'connecting' | 'connected' | 'disconnected', detail?: string) => void;
 
 interface PendingRequest {
   resolve: (payload: Record<string, unknown>) => void;
@@ -22,10 +22,13 @@ export class GatewayClient {
   private _url: string;
   private _token?: string;
   private _shouldReconnect = false;
+  private _lastDisconnectReason: string | null = null;
+  private _role: 'operator' | 'webchat' | 'node' = 'operator';
 
-  constructor(url: string, token?: string) {
+  constructor(url: string, token?: string, role: 'operator' | 'webchat' | 'node' = 'operator') {
     this._url = url;
     this._token = token;
+    this._role = role;
   }
 
   get wsSessionId() {
@@ -98,6 +101,10 @@ export class GatewayClient {
     return () => this.connectionHandlers.delete(handler);
   }
 
+  get lastDisconnectReason() {
+    return this._lastDisconnectReason;
+  }
+
   private doConnect(): void {
     this.notifyConnection('connecting');
 
@@ -118,7 +125,7 @@ export class GatewayClient {
         method: 'connect.hello',
         params: {
           ...(this._token ? { token: this._token } : {}),
-          role: 'operator',
+          role: this._role,
         },
       };
 
@@ -132,10 +139,12 @@ export class GatewayClient {
           this._wsSessionId = payload.sessionId as string;
           this._setupRequired = (payload.setupRequired as boolean) ?? false;
           this._onboardingPhase = (payload.onboardingPhase as string) ?? null;
+          this._lastDisconnectReason = null;
           this.notifyConnection('connected');
         },
-        reject: () => {
-          this.ws?.close();
+        reject: (err) => {
+          this._lastDisconnectReason = err.message;
+          this.ws?.close(1008, err.message);
         },
         timeout,
       });
@@ -152,12 +161,14 @@ export class GatewayClient {
       }
     };
 
-    this.ws.onclose = () => {
+    this.ws.onclose = (ev) => {
       this._wsSessionId = null;
       this._setupRequired = false;
       this._onboardingPhase = null;
-      this.rejectAllPending('Connection closed');
-      this.notifyConnection('disconnected');
+      const reason = ev.reason || 'Connection closed';
+      this._lastDisconnectReason = reason;
+      this.rejectAllPending(reason);
+      this.notifyConnection('disconnected', reason);
       if (this._shouldReconnect) {
         this.scheduleReconnect();
       }
@@ -178,7 +189,10 @@ export class GatewayClient {
         if (res.ok) {
           pending.resolve(res.payload);
         } else {
-          pending.reject(new Error((res.payload.error as string) || 'RPC error'));
+          const message = (res.payload.error as string) || 'RPC error';
+          const code = (res.payload.code as string) || undefined;
+          const decorated = code ? `${message} [${code}]` : message;
+          pending.reject(new Error(decorated));
         }
       }
     } else if (frame.type === 'event') {
@@ -214,10 +228,10 @@ export class GatewayClient {
     }
   }
 
-  private notifyConnection(state: 'connecting' | 'connected' | 'disconnected'): void {
+  private notifyConnection(state: 'connecting' | 'connected' | 'disconnected', detail?: string): void {
     for (const handler of this.connectionHandlers) {
       try {
-        handler(state);
+        handler(state, detail);
       } catch {
         // ignore
       }

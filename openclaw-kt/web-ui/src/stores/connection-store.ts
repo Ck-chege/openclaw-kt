@@ -12,7 +12,7 @@ interface ConnectionStore {
   onboardingPhase: string | null;
   error: string | null;
 
-  connect: (url?: string, token?: string) => void;
+  connect: (url?: string, token?: string, role?: 'operator' | 'webchat' | 'node') => void;
   disconnect: () => void;
   clearSetupRequired: () => void;
 }
@@ -25,21 +25,22 @@ export const useConnectionStore = create<ConnectionStore>((set, get) => ({
   onboardingPhase: null,
   error: null,
 
-  connect: (url?: string, token?: string) => {
+  connect: (url?: string, token?: string, role: 'operator' | 'webchat' | 'node' = 'operator') => {
     const existing = get().client;
     if (existing) existing.disconnect();
 
-    const wsUrl = url || `${window.location.protocol === 'https:' ? 'wss:' : 'ws:'}//${window.location.host}/ws`;
+    // KT gateway WebSocket endpoint is mounted at "/" (not "/ws").
+    const wsUrl = url || `${window.location.protocol === 'https:' ? 'wss:' : 'ws:'}//${window.location.host}/`;
     const authToken = token || localStorage.getItem('openclaw-token') || undefined;
-    const client = new GatewayClient(wsUrl, authToken);
+    const client = new GatewayClient(wsUrl, authToken, role);
 
-    client.onConnection((connState) => {
+    client.onConnection((connState, detail) => {
       set({
         state: connState,
         wsSessionId: connState === 'connected' ? client.wsSessionId : null,
         setupRequired: connState === 'connected' ? client.setupRequired : false,
         onboardingPhase: connState === 'connected' ? client.onboardingPhase : null,
-        error: null,
+        error: connState === 'disconnected' ? (detail || client.lastDisconnectReason) : null,
       });
       if (connState === 'connected') notify.connected();
       else if (connState === 'disconnected') notify.disconnected();
