@@ -50,9 +50,9 @@ class AgentEngine(
     @Volatile
     private var currentSecrets: SecretsConfig? = configFlow?.value?.secrets
 
-    val modelRegistry: ModelRegistry = ModelRegistry { envVar ->
-        resolveConfigSecret(envVar) ?: apiKeyResolver(envVar)
-    }
+    val modelRegistry: ModelRegistry = ModelRegistry(
+        apiKeyResolver = { envVar -> resolveConfigSecret(envVar) ?: apiKeyResolver(envVar) }
+    )
     val agentResolver: AgentResolver = AgentResolver()
 
     val runtime: AgentRuntime = AgentRuntime(

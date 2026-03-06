@@ -11,11 +11,19 @@ export default defineConfig({
     },
   },
   server: {
+    allowedHosts: ['yvonne-nonnihilistic-vascularly.ngrok-free.dev'],
     proxy: {
       '/ws': {
-        target: 'ws://127.0.0.1:18789',
+        target: 'ws://127.0.0.1:18790',
         ws: true,
         rewriteWsOrigin: true,
+        rewrite: () => '/',
+      },
+      '/gw': {
+        target: 'ws://127.0.0.1:18790',
+        ws: true,
+        rewriteWsOrigin: true,
+        changeOrigin: true,
         rewrite: () => '/',
       },
     },

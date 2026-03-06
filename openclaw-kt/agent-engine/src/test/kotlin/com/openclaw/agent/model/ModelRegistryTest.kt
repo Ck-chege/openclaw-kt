@@ -15,7 +15,11 @@ class ModelRegistryTest {
 
     private fun registryWithKeys(vararg keys: Pair<String, String>): ModelRegistry {
         val keyMap = keys.toMap()
-        return ModelRegistry(apiKeyResolver = { keyMap[it] })
+        // Disable Claude CLI credential discovery in tests — use only the provided key map
+        return ModelRegistry(
+            apiKeyResolver = { keyMap[it] },
+            claudeCliCredentialReader = { null }
+        )
     }
 
     private fun registryWithAllKeys(): ModelRegistry =

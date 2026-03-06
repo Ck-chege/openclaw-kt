@@ -30,7 +30,10 @@ export const useConnectionStore = create<ConnectionStore>((set, get) => ({
     if (existing) existing.disconnect();
 
     // KT gateway WebSocket endpoint is mounted at "/" (not "/ws").
-    const wsUrl = url || `${window.location.protocol === 'https:' ? 'wss:' : 'ws:'}//${window.location.host}/`;
+    // When accessed via a tunnel/proxy (non-localhost), route through the /gw proxy path.
+    const isLocal = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1';
+    const wsPath = isLocal ? '/' : '/gw';
+    const wsUrl = url || `${window.location.protocol === 'https:' ? 'wss:' : 'ws:'}//${window.location.host}${wsPath}`;
     const authToken = token || localStorage.getItem('openclaw-token') || undefined;
     const client = new GatewayClient(wsUrl, authToken, role);
 

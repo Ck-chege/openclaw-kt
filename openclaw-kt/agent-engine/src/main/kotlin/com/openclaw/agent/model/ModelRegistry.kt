@@ -11,9 +11,10 @@ import java.util.concurrent.ConcurrentHashMap
 private val logger = KotlinLogging.logger {}
 
 class ModelRegistry(
-    apiKeyResolver: (String) -> String? = { System.getenv(it) }
+    apiKeyResolver: (String) -> String? = { System.getenv(it) },
+    claudeCliCredentialReader: () -> ClaudeCliCredential? = { readClaudeCliCredentials() }
 ) {
-    private val providerFactory = ProviderFactory(apiKeyResolver)
+    private val providerFactory = ProviderFactory(apiKeyResolver, claudeCliCredentialReader)
     private val catalog = ConcurrentHashMap<String, ModelDefinition>()
 
     init {
