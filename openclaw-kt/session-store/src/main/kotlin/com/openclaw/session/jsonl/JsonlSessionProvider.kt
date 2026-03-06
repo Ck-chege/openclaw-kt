@@ -186,6 +186,7 @@ class JsonlSessionProvider(private val sessionsDir: Path) : CompactableSessionSt
                     fileId = meta.fileId
                 }
                 fileId?.let { transcriptPath(it).deleteIfExists() }
+                Unit
             }
         } finally {
             writeLock.cleanup(key)
