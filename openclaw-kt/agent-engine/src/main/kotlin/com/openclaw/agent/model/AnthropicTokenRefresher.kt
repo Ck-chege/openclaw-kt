@@ -5,6 +5,7 @@ import io.ktor.client.*
 import io.ktor.client.engine.cio.*
 import io.ktor.client.plugins.contentnegotiation.*
 import io.ktor.client.request.*
+import io.ktor.client.request.forms.*
 import io.ktor.client.statement.*
 import io.ktor.http.*
 import io.ktor.serialization.kotlinx.json.*
@@ -23,13 +24,6 @@ private val CLIENT_ID = java.util.Base64.getDecoder()
     .toString(Charsets.UTF_8)
 
 private val refreshJson = Json { ignoreUnknownKeys = true }
-
-@Serializable
-private data class TokenRefreshRequest(
-    @SerialName("grant_type") val grantType: String = "refresh_token",
-    @SerialName("client_id") val clientId: String,
-    @SerialName("refresh_token") val refreshToken: String
-)
 
 @Serializable
 private data class TokenRefreshResponse(
@@ -66,18 +60,15 @@ suspend fun refreshAnthropicToken(refreshToken: String): RefreshedTokens {
     return try {
         logger.info { "Refreshing Anthropic OAuth token..." }
 
-        val body = refreshJson.encodeToString(
-            TokenRefreshRequest.serializer(),
-            TokenRefreshRequest(
-                clientId = CLIENT_ID,
-                refreshToken = refreshToken
-            )
+        // OAuth 2.0 token endpoint requires application/x-www-form-urlencoded (not JSON)
+        val response: HttpResponse = client.submitForm(
+            url = TOKEN_URL,
+            formParameters = Parameters.build {
+                append("grant_type", "refresh_token")
+                append("client_id", CLIENT_ID)
+                append("refresh_token", refreshToken)
+            }
         )
-
-        val response: HttpResponse = client.post(TOKEN_URL) {
-            contentType(ContentType.Application.Json)
-            setBody(body)
-        }
 
         if (!response.status.isSuccess()) {
             val errorBody = response.bodyAsText()
