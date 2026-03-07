@@ -24,14 +24,20 @@ object EditTool : SimpleTool<EditTool.Args>(
     )
 
     var workspacePath: Path = Path.of(".")
+    var enforceBoundary: Boolean = true
 
     override suspend fun execute(args: Args): String {
         if (args.old_string.isEmpty()) return "Error: old_string cannot be empty"
 
-        val resolved = try {
-            WorkspaceBoundary.resolve(args.path, workspacePath)
-        } catch (e: WorkspaceBoundary.WorkspaceBoundaryViolation) {
-            return "Error: ${e.message}"
+        val resolved = if (enforceBoundary) {
+            try {
+                WorkspaceBoundary.resolve(args.path, workspacePath)
+            } catch (e: WorkspaceBoundary.WorkspaceBoundaryViolation) {
+                return "Error: ${e.message}"
+            }
+        } else {
+            val p = Path.of(args.path)
+            if (p.isAbsolute) p.normalize() else workspacePath.resolve(args.path).normalize()
         }
 
         val file = resolved.toFile()

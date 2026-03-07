@@ -11,7 +11,7 @@ import java.nio.file.StandardCopyOption
 object WriteTool : SimpleTool<WriteTool.Args>(
     argsSerializer = Args.serializer(),
     name = "write",
-    description = "Write content to a file. Creates the file if it doesn't exist, overwrites if it does. Only writes within the workspace."
+    description = "Write content to a file. Creates the file if it doesn't exist, overwrites if it does. Automatically creates parent directories."
 ) {
     @Serializable
     data class Args(
@@ -22,12 +22,18 @@ object WriteTool : SimpleTool<WriteTool.Args>(
     )
 
     var workspacePath: Path = Path.of(".")
+    var enforceBoundary: Boolean = true
 
     override suspend fun execute(args: Args): String {
-        val resolved = try {
-            WorkspaceBoundary.resolve(args.path, workspacePath)
-        } catch (e: WorkspaceBoundary.WorkspaceBoundaryViolation) {
-            return "Error: ${e.message}"
+        val resolved = if (enforceBoundary) {
+            try {
+                WorkspaceBoundary.resolve(args.path, workspacePath)
+            } catch (e: WorkspaceBoundary.WorkspaceBoundaryViolation) {
+                return "Error: ${e.message}"
+            }
+        } else {
+            val p = Path.of(args.path)
+            if (p.isAbsolute) p.normalize() else workspacePath.resolve(args.path).normalize()
         }
 
         // Create parent dirs

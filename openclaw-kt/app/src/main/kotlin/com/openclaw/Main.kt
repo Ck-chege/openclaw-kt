@@ -145,9 +145,13 @@ fun main() {
     val backgroundTracker = BackgroundProcessTracker()
 
     // Configure core tools with workspace and tracker
+    val workspaceOnly = config.tools.fs.workspaceOnly
     ReadTool.workspacePath = workspacePath
+    ReadTool.enforceBoundary = workspaceOnly
     WriteTool.workspacePath = workspacePath
+    WriteTool.enforceBoundary = workspaceOnly
     EditTool.workspacePath = workspacePath
+    EditTool.enforceBoundary = workspaceOnly
     ExecTool.workspacePath = workspacePath
     ExecTool.backgroundTracker = backgroundTracker
     ProcessTool.tracker = backgroundTracker

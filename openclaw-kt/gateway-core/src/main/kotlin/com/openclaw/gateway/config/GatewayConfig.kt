@@ -66,7 +66,19 @@ data class ToolsConfig(
     val byProvider: Map<String, ProviderToolConfig> = emptyMap(),
     val sandbox: SandboxToolConfig = SandboxToolConfig(),
     val loopDetection: LoopDetectionConfig = LoopDetectionConfig(),
-    val mcp: List<McpServerEntry> = emptyList()
+    val mcp: List<McpServerEntry> = emptyList(),
+    /** Filesystem access policy — mirrors TS tools.fs config. */
+    val fs: FsToolConfig = FsToolConfig()
+)
+
+@Serializable
+data class FsToolConfig(
+    /**
+     * When true, read/write/edit tools are restricted to the agent workspace directory.
+     * When false (default), the agent can access any file on the machine — same as the
+     * TS OpenClaw default behaviour.
+     */
+    val workspaceOnly: Boolean = false
 )
 
 @Serializable
