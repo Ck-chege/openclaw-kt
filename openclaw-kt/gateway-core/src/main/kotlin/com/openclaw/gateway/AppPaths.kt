@@ -31,6 +31,9 @@ object AppPaths {
     /** Koog checkpoint store: ~/.openclawk/checkpoints.sqlite */
     val checkpoints: Path get() = base.resolve("checkpoints.sqlite")
 
+    /** Agent trace output dir: ~/.openclawk/traces/ */
+    val traces: Path get() = base.resolve("traces")
+
     /** Global user skills: ~/.openclawk/skills/ */
     val skills: Path get() = base.resolve("skills")
 

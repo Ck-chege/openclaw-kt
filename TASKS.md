@@ -575,7 +575,8 @@
   - [ ] Add OpenTelemetry SDK dependencies
   - [ ] Instrument agent runs: span per run, child spans per tool call and model request
   - [ ] Instrument gateway: span per RPC method, WS connection lifecycle
-  - [ ] Configure Koog's built-in Tracing feature (Langfuse or W&B Weave)
+  - [x] Configure Koog's built-in Tracing feature in `AgentRuntime` with native Koog trace output
+  - [ ] Export Koog trace output into OpenTelemetry / Langfuse / Weave
   - [ ] Write test: trace exported with correct parent-child span relationships
 
 - [ ] **13.3 Metrics & health**

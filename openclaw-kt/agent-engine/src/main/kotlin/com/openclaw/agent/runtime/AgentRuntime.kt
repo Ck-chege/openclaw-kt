@@ -3,11 +3,14 @@ package com.openclaw.agent.runtime
 import ai.koog.agents.core.agent.AIAgent
 import ai.koog.agents.core.agent.config.AIAgentConfig
 import ai.koog.agents.core.agent.context.RollbackStrategy
+import ai.koog.agents.core.feature.model.events.LLMStreamingFrameReceivedEvent
 import ai.koog.agents.core.tools.ToolRegistry
 import ai.koog.agents.features.eventHandler.feature.handleEvents
 import ai.koog.agents.snapshot.feature.Persistence
 import ai.koog.agents.snapshot.providers.PersistenceStorageProvider
 import ai.koog.agents.snapshot.providers.filters.AgentCheckpointPredicateFilter
+import ai.koog.agents.features.tracing.feature.Tracing
+import ai.koog.agents.features.tracing.writer.TraceFeatureMessageFileWriter
 import ai.koog.prompt.dsl.prompt
 import ai.koog.prompt.streaming.StreamFrame
 import com.openclaw.agent.model.ModelRegistry
@@ -35,7 +38,13 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withTimeoutOrNull
 import kotlinx.datetime.Clock
 import kotlinx.serialization.json.JsonObject
+import kotlinx.io.asSink
+import kotlinx.io.buffered
+import java.nio.file.Files
+import java.nio.file.Path
+import java.nio.file.StandardOpenOption
 import java.util.UUID
+import kotlin.io.path.createDirectories
 import kotlin.time.Duration.Companion.seconds
 
 private val logger = KotlinLogging.logger {}
@@ -48,7 +57,8 @@ class AgentRuntime(
     private val modelRegistry: ModelRegistry,
     private val sessionStore: SessionStore? = null,
     private val compactionTrigger: CompactionTrigger? = null,
-    private val persistenceStorageProvider: PersistenceStorageProvider<AgentCheckpointPredicateFilter>? = null
+    private val persistenceStorageProvider: PersistenceStorageProvider<AgentCheckpointPredicateFilter>? = null,
+    private val traceOutputPath: Path? = null
 ) {
     /**
      * Audit A-6: Koog's `agent.run()` API currently does not expose provider-reported
@@ -165,6 +175,25 @@ class AgentRuntime(
                 toolRegistry = toolRegistry,
                 id = sessionKey.raw
             ) {
+                traceOutputPath?.let { tracePath ->
+                    install(Tracing) {
+                        val fileWriter = TraceFeatureMessageFileWriter(
+                            targetPath = tracePath,
+                            sinkOpener = { path ->
+                                path.parent?.createDirectories()
+                                Files.newOutputStream(
+                                    path,
+                                    StandardOpenOption.CREATE,
+                                    StandardOpenOption.APPEND
+                                ).asSink().buffered()
+                            }
+                        )
+                        fileWriter.setMessageFilter { message ->
+                            message !is LLMStreamingFrameReceivedEvent
+                        }
+                        addMessageProcessor(fileWriter)
+                    }
+                }
                 persistenceStorageProvider?.let { storageProvider ->
                     install(Persistence) {
                         storage = storageProvider

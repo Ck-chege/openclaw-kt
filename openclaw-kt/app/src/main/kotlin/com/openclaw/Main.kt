@@ -134,7 +134,15 @@ fun main() {
     }
     logger.info { "Compaction trigger: ${if (compactionTrigger != null) "enabled" else "disabled (session store not compactable)"}" }
 
-    val agentRuntime = AgentRuntime(modelRegistry, sessionStore, compactionTrigger, checkpointProvider)
+    val traceOutputPath = AppPaths.traces.resolve("agent-runtime.log")
+    val agentRuntime = AgentRuntime(
+        modelRegistry,
+        sessionStore,
+        compactionTrigger,
+        checkpointProvider,
+        traceOutputPath
+    )
+    logger.info { "Koog tracing initialized (file: $traceOutputPath)" }
     val runManager = RunManager(agentRuntime, appScope)
     val agentResolver = AgentResolver()
 

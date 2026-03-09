@@ -16,6 +16,7 @@ dependencies {
 
     implementation(libs.bundles.koog)
     implementation(libs.bundles.koog.executors)
+    implementation(libs.koog.features.trace)
 
     // Ktor client — needed for the Anthropic OAuth engine wrapper (setup-token auth)
     implementation(libs.bundles.ktor.client)
