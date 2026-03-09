@@ -1,7 +1,7 @@
 package com.openclaw.agent.model
 
 import ai.koog.prompt.executor.clients.anthropic.AnthropicClientSettings
-import ai.koog.prompt.executor.llms.SingleLLMPromptExecutor
+import ai.koog.prompt.executor.clients.LLMClient
 import ai.koog.prompt.executor.model.PromptExecutor
 import io.github.oshai.kotlinlogging.KotlinLogging
 
@@ -31,23 +31,32 @@ fun isAnthropicOAuthToken(apiKey: String): Boolean =
     apiKey.trimStart().startsWith("sk-ant-oat")
 
 /**
- * Creates a [PromptExecutor] for Anthropic using OAuth/setup-token auth.
+ * Creates an [LLMClient] for Anthropic using OAuth/setup-token auth.
  *
  * Uses [AnthropicOAuthLLMClient] which:
  * - Has its own Ktor [HttpClient] with OAuth headers baked in
- * - Reuses [AnthropicLLMClient.createAnthropicRequest] for request serialization
+ * - Reuses Anthropic request serialization
  * - Calls [tokenSupplier] per-request so refreshed tokens are always used
  *
  * @param tokenSupplier Lambda called before each request to get a (possibly refreshed) token
  * @param settings Optional Koog [AnthropicClientSettings] override
  */
+fun createAnthropicOAuthClient(
+    tokenSupplier: suspend () -> String,
+    settings: AnthropicClientSettings = AnthropicClientSettings()
+): LLMClient {
+    logger.info { "Creating Anthropic OAuth client (betas: ${ANTHROPIC_OAUTH_BETAS.joinToString()})" }
+    return AnthropicOAuthLLMClient(tokenSupplier = tokenSupplier, settings = settings)
+}
+
+/**
+ * Creates a [PromptExecutor] for Anthropic using OAuth/setup-token auth.
+ */
 fun createAnthropicOAuthExecutor(
     tokenSupplier: suspend () -> String,
     settings: AnthropicClientSettings = AnthropicClientSettings()
 ): PromptExecutor {
-    logger.info { "Creating Anthropic OAuth executor (betas: ${ANTHROPIC_OAUTH_BETAS.joinToString()})" }
-    val llmClient = AnthropicOAuthLLMClient(tokenSupplier = tokenSupplier, settings = settings)
-    return SingleLLMPromptExecutor(llmClient)
+    return createRetryingPromptExecutor(createAnthropicOAuthClient(tokenSupplier, settings))
 }
 
 /**

@@ -1,16 +1,20 @@
 package com.openclaw.agent.model
 
+import ai.koog.prompt.executor.clients.anthropic.AnthropicClientSettings
+import ai.koog.prompt.executor.clients.anthropic.AnthropicLLMClient
 import ai.koog.prompt.executor.clients.deepseek.DeepSeekClientSettings
 import ai.koog.prompt.executor.clients.deepseek.DeepSeekLLMClient
+import ai.koog.prompt.executor.clients.google.GoogleClientSettings
+import ai.koog.prompt.executor.clients.google.GoogleLLMClient
+import ai.koog.prompt.executor.clients.mistralai.MistralAIClientSettings
+import ai.koog.prompt.executor.clients.mistralai.MistralAILLMClient
 import ai.koog.prompt.executor.clients.openai.OpenAIClientSettings
 import ai.koog.prompt.executor.clients.openai.OpenAILLMClient
-import ai.koog.prompt.executor.llms.SingleLLMPromptExecutor
-import ai.koog.prompt.executor.llms.all.simpleAnthropicExecutor
-import ai.koog.prompt.executor.llms.all.simpleGoogleAIExecutor
-import ai.koog.prompt.executor.llms.all.simpleMistralAIExecutor
-import ai.koog.prompt.executor.llms.all.simpleOllamaAIExecutor
-import ai.koog.prompt.executor.llms.all.simpleOpenAIExecutor
-import ai.koog.prompt.executor.llms.all.simpleOpenRouterExecutor
+import ai.koog.prompt.executor.clients.openai.azure.AzureOpenAIClientSettings
+import ai.koog.prompt.executor.clients.openai.azure.AzureOpenAIServiceVersion
+import ai.koog.prompt.executor.clients.openrouter.OpenRouterClientSettings
+import ai.koog.prompt.executor.clients.openrouter.OpenRouterLLMClient
+import ai.koog.prompt.executor.ollama.client.OllamaClient
 import ai.koog.prompt.executor.model.PromptExecutor
 import com.openclaw.gateway.config.ProvidersConfig
 import io.github.oshai.kotlinlogging.KotlinLogging
@@ -100,10 +104,10 @@ class ProviderFactory(
 
     fun getExecutor(provider: LLMProvider): PromptExecutor = when (provider) {
         LLMProvider.ANTHROPIC -> getAnthropicExecutor()
-        LLMProvider.OPENAI    -> getSimpleExecutor(provider) { simpleOpenAIExecutor(it) }
-        LLMProvider.GOOGLE    -> getSimpleExecutor(provider) { simpleGoogleAIExecutor(it) }
-        LLMProvider.OPENROUTER -> getSimpleExecutor(provider) { simpleOpenRouterExecutor(it) }
-        LLMProvider.MISTRAL   -> getSimpleExecutor(provider) { simpleMistralAIExecutor(it) }
+        LLMProvider.OPENAI    -> getOpenAIExecutor()
+        LLMProvider.GOOGLE    -> getGoogleExecutor()
+        LLMProvider.OPENROUTER -> getOpenRouterExecutor()
+        LLMProvider.MISTRAL   -> getMistralExecutor()
         LLMProvider.OLLAMA    -> getOllamaExecutor()
         LLMProvider.DEEPSEEK  -> getDeepSeekExecutor()
         LLMProvider.AZURE     -> getAzureExecutor()
@@ -129,10 +133,10 @@ class ProviderFactory(
 
         logger.info { "Creating Anthropic executor (mode: $mode)" }
 
-        val baseExecutor = when (mode) {
+        val client = when (mode) {
             AnthropicAuthMode.API_KEY -> {
                 logger.info { "Using Anthropic API key auth" }
-                simpleAnthropicExecutor(explicitKey!!)
+                AnthropicLLMClient(explicitKey!!, AnthropicClientSettings())
             }
             AnthropicAuthMode.OAUTH_TOKEN, AnthropicAuthMode.CLAUDE_CLI -> {
                 val manager = AnthropicCredentialManager(explicitKey = explicitKey, homeDir = null)
@@ -149,12 +153,40 @@ class ProviderFactory(
                     logger.info { "Using Anthropic setup-token (OAuth, no auto-refresh)" }
                 }
 
-                createAnthropicOAuthExecutor(tokenSupplier = { manager.getAccessToken() })
+                createAnthropicOAuthClient(tokenSupplier = { manager.getAccessToken() })
             }
         }
 
-        return RetryingExecutor(baseExecutor).also {
+        return createRetryingPromptExecutor(client).also {
             executorCache[LLMProvider.ANTHROPIC] = CachedExecutor(cacheKey, it)
+        }
+    }
+
+    private fun getOpenAIExecutor(): PromptExecutor {
+        val apiKey = resolveSecret(LLMProvider.OPENAI.envVar, secrets.openaiApiKey)
+            ?: throw ModelRegistryError.MissingApiKey(LLMProvider.OPENAI.prefix, LLMProvider.OPENAI.envVar)
+
+        val cached = executorCache[LLMProvider.OPENAI]
+        if (cached != null && cached.cacheKey == apiKey) return cached.executor
+
+        logger.info { "Creating openai executor" }
+        val client = OpenAILLMClient(apiKey, OpenAIClientSettings())
+        return createRetryingPromptExecutor(client).also {
+            executorCache[LLMProvider.OPENAI] = CachedExecutor(apiKey, it)
+        }
+    }
+
+    private fun getGoogleExecutor(): PromptExecutor {
+        val apiKey = resolveSecret(LLMProvider.GOOGLE.envVar, secrets.googleApiKey)
+            ?: throw ModelRegistryError.MissingApiKey(LLMProvider.GOOGLE.prefix, LLMProvider.GOOGLE.envVar)
+
+        val cached = executorCache[LLMProvider.GOOGLE]
+        if (cached != null && cached.cacheKey == apiKey) return cached.executor
+
+        logger.info { "Creating google executor" }
+        val client = GoogleLLMClient(apiKey, GoogleClientSettings())
+        return createRetryingPromptExecutor(client).also {
+            executorCache[LLMProvider.GOOGLE] = CachedExecutor(apiKey, it)
         }
     }
 
@@ -166,7 +198,8 @@ class ProviderFactory(
         if (cached != null && cached.cacheKey == baseUrl) return cached.executor
 
         logger.info { "Creating Ollama executor (baseUrl=$baseUrl)" }
-        return RetryingExecutor(simpleOllamaAIExecutor(baseUrl)).also {
+        val client = OllamaClient(baseUrl = baseUrl)
+        return createRetryingPromptExecutor(client).also {
             executorCache[LLMProvider.OLLAMA] = CachedExecutor(baseUrl, it)
         }
     }
@@ -182,8 +215,36 @@ class ProviderFactory(
 
         logger.info { "Creating DeepSeek executor" }
         val client = DeepSeekLLMClient(apiKey, DeepSeekClientSettings())
-        return RetryingExecutor(SingleLLMPromptExecutor(client)).also {
+        return createRetryingPromptExecutor(client).also {
             executorCache[LLMProvider.DEEPSEEK] = CachedExecutor(apiKey, it)
+        }
+    }
+
+    private fun getMistralExecutor(): PromptExecutor {
+        val apiKey = resolveSecret(LLMProvider.MISTRAL.envVar, secrets.mistralApiKey)
+            ?: throw ModelRegistryError.MissingApiKey(LLMProvider.MISTRAL.prefix, LLMProvider.MISTRAL.envVar)
+
+        val cached = executorCache[LLMProvider.MISTRAL]
+        if (cached != null && cached.cacheKey == apiKey) return cached.executor
+
+        logger.info { "Creating mistral executor" }
+        val client = MistralAILLMClient(apiKey, MistralAIClientSettings())
+        return createRetryingPromptExecutor(client).also {
+            executorCache[LLMProvider.MISTRAL] = CachedExecutor(apiKey, it)
+        }
+    }
+
+    private fun getOpenRouterExecutor(): PromptExecutor {
+        val apiKey = resolveSecret(LLMProvider.OPENROUTER.envVar, secrets.openrouterApiKey)
+            ?: throw ModelRegistryError.MissingApiKey(LLMProvider.OPENROUTER.prefix, LLMProvider.OPENROUTER.envVar)
+
+        val cached = executorCache[LLMProvider.OPENROUTER]
+        if (cached != null && cached.cacheKey == apiKey) return cached.executor
+
+        logger.info { "Creating openrouter executor" }
+        val client = OpenRouterLLMClient(apiKey, OpenRouterClientSettings())
+        return createRetryingPromptExecutor(client).also {
+            executorCache[LLMProvider.OPENROUTER] = CachedExecutor(apiKey, it)
         }
     }
 
@@ -203,16 +264,14 @@ class ProviderFactory(
 
         logger.info { "Creating Azure OpenAI executor (endpoint=$endpoint, deployment=$deployment)" }
 
-        // Use koog's Azure executor (positional args: apiKey, endpoint, version, deployment)
-        val azureExecutor = ai.koog.prompt.executor.llms.all.simpleAzureOpenAIExecutor(
-            apiKey,
-            endpoint,
-            ai.koog.prompt.executor.clients.openai.azure.AzureOpenAIServiceVersion.fromString(
-                providersConfig.azure.apiVersion
-            ),
-            deployment
+        val azureClient = OpenAILLMClient(
+            apiKey = apiKey,
+            settings = AzureOpenAIClientSettings(
+                baseUrl = endpoint,
+                version = AzureOpenAIServiceVersion.fromString(providersConfig.azure.apiVersion)
+            )
         )
-        return RetryingExecutor(azureExecutor).also {
+        return createRetryingPromptExecutor(azureClient).also {
             executorCache[LLMProvider.AZURE] = CachedExecutor(cacheKey, it)
         }
     }
@@ -244,33 +303,8 @@ class ProviderFactory(
 
         logger.info { "Creating ${provider.prefix} executor (baseUrl=$baseUrl)" }
         val client = OpenAILLMClient(apiKey, OpenAIClientSettings(baseUrl = baseUrl))
-        return RetryingExecutor(SingleLLMPromptExecutor(client)).also {
+        return createRetryingPromptExecutor(client).also {
             executorCache[provider] = CachedExecutor(cacheKey, it)
-        }
-    }
-
-    // ── Simple executor helper ────────────────────────────────────────────────
-
-    private fun getSimpleExecutor(
-        provider: LLMProvider,
-        factory: (String) -> PromptExecutor
-    ): PromptExecutor {
-        val secretField = when (provider) {
-            LLMProvider.OPENAI      -> secrets.openaiApiKey
-            LLMProvider.GOOGLE      -> secrets.googleApiKey
-            LLMProvider.OPENROUTER  -> secrets.openrouterApiKey
-            LLMProvider.MISTRAL     -> secrets.mistralApiKey
-            else -> null
-        }
-        val apiKey = resolveSecret(provider.envVar, secretField)
-            ?: throw ModelRegistryError.MissingApiKey(provider.prefix, provider.envVar)
-
-        val cached = executorCache[provider]
-        if (cached != null && cached.cacheKey == apiKey) return cached.executor
-
-        logger.info { "Creating ${provider.prefix} executor" }
-        return RetryingExecutor(factory(apiKey)).also {
-            executorCache[provider] = CachedExecutor(apiKey, it)
         }
     }
 

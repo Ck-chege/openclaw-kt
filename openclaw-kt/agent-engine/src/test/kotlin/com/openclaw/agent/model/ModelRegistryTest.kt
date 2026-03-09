@@ -1,5 +1,7 @@
 package com.openclaw.agent.model
 
+import ai.koog.prompt.executor.clients.retry.RetryingLLMClient
+import ai.koog.prompt.executor.llms.SingleLLMPromptExecutor
 import com.openclaw.protocol.identifiers.ModelId
 import io.kotest.matchers.collections.shouldContain
 import io.kotest.matchers.collections.shouldHaveAtLeastSize
@@ -120,6 +122,17 @@ class ModelRegistryTest {
             val registry = registryWithAllKeys()
             val executor = registry.resolveExecutor(ModelId("openai:gpt-4o"))
             executor shouldNotBe null
+        }
+
+        @Test
+        fun `resolveExecutor backs OpenAI with Koog retrying client`() {
+            val registry = registryWithAllKeys()
+            val executor = registry.resolveExecutor(ModelId("openai:gpt-4o"))
+                .shouldBeInstanceOf<SingleLLMPromptExecutor>()
+
+            val clientField = executor::class.java.getDeclaredField("llmClient")
+            clientField.isAccessible = true
+            clientField.get(executor).shouldBeInstanceOf<RetryingLLMClient>()
         }
 
         @Test
