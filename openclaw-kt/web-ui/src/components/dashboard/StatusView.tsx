@@ -45,8 +45,8 @@ export function StatusView() {
             </h3>
             <div className="space-y-1">
               {models.map((model) => (
-                <div key={model} className="text-xs font-mono text-muted-foreground px-2 py-1 rounded bg-muted/50">
-                  {model}
+                <div key={model.id} className="text-xs font-mono text-muted-foreground px-2 py-1 rounded bg-muted/50">
+                  {model.id}
                 </div>
               ))}
             </div>

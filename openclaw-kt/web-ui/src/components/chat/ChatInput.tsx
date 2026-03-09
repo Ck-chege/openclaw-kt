@@ -62,6 +62,9 @@ export function ChatInput({ onSend, onStop, isStreaming, disabled }: ChatInputPr
   }, [text]);
 
   const showSuggestions = !disabled && !isStreaming && !text;
+  const placeholder = disabled
+    ? (models.length === 0 ? 'No ready models configured' : 'Connecting...')
+    : 'Send a message...';
 
   return (
     <div className="border-t border-border p-4 bg-background">
@@ -88,7 +91,7 @@ export function ChatInput({ onSend, onStop, isStreaming, disabled }: ChatInputPr
               value={text}
               onChange={(e) => setText(e.target.value)}
               onKeyDown={handleKeyDown}
-              placeholder={disabled ? 'Connecting...' : 'Send a message...'}
+              placeholder={placeholder}
               disabled={disabled}
               rows={1}
               className="w-full resize-none bg-muted border border-input rounded-lg px-4 py-2.5 text-sm placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring disabled:opacity-50 min-h-[40px] max-h-[200px] pr-12"
@@ -144,7 +147,7 @@ export function ChatInput({ onSend, onStop, isStreaming, disabled }: ChatInputPr
               </DropdownMenuContent>
             </DropdownMenu>
           ) : (
-            <span className="text-[11px] text-muted-foreground">No models loaded</span>
+            <span className="text-[11px] text-muted-foreground">No ready models</span>
           )}
 
           <span className="text-[11px] text-muted-foreground">

@@ -22,7 +22,6 @@ import {
   EyeOff,
   Trash2,
   Download,
-  Upload,
   ExternalLink,
   Zap,
   ChevronDown,
@@ -174,13 +173,14 @@ function GeneralTab() {
 
 /* ── Models Tab ─────────────────────────────────────────── */
 function ModelsTab() {
-  const { models, selectedModelId, setSelectedModel } = useDashboardStore();
+  const { models, supportedModels, selectedModelId, setSelectedModel } = useDashboardStore();
+  const unavailableModels = supportedModels.filter((model) => !model.ready);
 
   return (
     <div className="max-w-lg space-y-6">
-      <SettingsSection title="Available Models" description="Models registered in the gateway. Select a default for new conversations.">
+      <SettingsSection title="Ready Models" description="Runnable models for chat right now. Select a default for new conversations.">
         {models.length === 0 ? (
-          <p className="text-xs text-muted-foreground">No models loaded. Connect to a gateway first.</p>
+          <p className="text-xs text-muted-foreground">No ready models loaded. Add provider credentials or configuration first.</p>
         ) : (
           <div className="space-y-2">
             {models.map((model) => {
@@ -207,6 +207,34 @@ function ModelsTab() {
                 </button>
               );
             })}
+          </div>
+        )}
+      </SettingsSection>
+
+      <SettingsSection title="Unavailable Models" description="Supported models that are currently hidden from chat because they are not runnable with the current configuration.">
+        {unavailableModels.length === 0 ? (
+          <p className="text-xs text-muted-foreground">All supported models are currently ready.</p>
+        ) : (
+          <div className="space-y-2">
+            {unavailableModels.map((model) => (
+              <div
+                key={model.id}
+                className="w-full text-left border rounded-lg p-3 border-border bg-muted/20 opacity-80"
+              >
+                <div className="flex items-center justify-between gap-3">
+                  <div className="min-w-0">
+                    <p className="text-sm font-medium">{model.displayName}</p>
+                    <p className="text-[11px] font-mono text-muted-foreground break-all">{model.id}</p>
+                  </div>
+                  <Badge variant="outline" className="text-[10px] flex-shrink-0">
+                    unavailable
+                  </Badge>
+                </div>
+                <p className="text-[11px] text-muted-foreground mt-2">
+                  {model.unavailableReason || 'Provider not configured'}
+                </p>
+              </div>
+            ))}
           </div>
         )}
       </SettingsSection>

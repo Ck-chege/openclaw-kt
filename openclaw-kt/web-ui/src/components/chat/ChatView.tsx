@@ -27,7 +27,7 @@ export function ChatView() {
         onSend={handleSend}
         onStop={handleStop}
         isStreaming={isStreaming}
-        disabled={state !== 'connected'}
+        disabled={state !== 'connected' || models.length === 0}
       />
     </div>
   );

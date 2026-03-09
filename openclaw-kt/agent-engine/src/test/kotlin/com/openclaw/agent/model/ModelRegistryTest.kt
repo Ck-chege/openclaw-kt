@@ -162,6 +162,22 @@ class ModelRegistryTest {
                 registry.resolveExecutor(ModelId("anthropic:does-not-exist"))
             }
         }
+
+        @Test
+        fun `availability reports missing key with reason`() {
+            val registry = registryWithKeys()
+            val availability = registry.availability(ModelId("google:gemini-2.5-pro"))
+            availability.ready shouldBe false
+            availability.unavailableReason shouldBe "Missing GEMINI_API_KEY"
+        }
+
+        @Test
+        fun `availability reports ready when provider is configured`() {
+            val registry = registryWithAllKeys()
+            val availability = registry.availability(ModelId("deepseek:deepseek-chat"))
+            availability.ready shouldBe true
+            availability.unavailableReason shouldBe null
+        }
     }
 
     @Nested

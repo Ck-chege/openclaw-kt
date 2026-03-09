@@ -22,6 +22,11 @@ class ModelRegistry(
     providersConfig: ProvidersConfig = ProvidersConfig(),
     claudeCliCredentialReader: () -> ClaudeCliCredential? = { readClaudeCliCredentials() }
 ) {
+    data class ModelAvailability(
+        val ready: Boolean,
+        val unavailableReason: String? = null
+    )
+
     private val providerFactory = ProviderFactory(
         apiKeyResolver = apiKeyResolver,
         providersConfig = providersConfig,
@@ -103,6 +108,26 @@ class ModelRegistry(
         val definition = resolve(modelId)
         return providerFactory.getExecutorForPrefix(definition.provider)
     }
+
+    fun availability(modelId: ModelId): ModelAvailability =
+        availability(resolve(modelId))
+
+    fun availability(definition: ModelDefinition): ModelAvailability =
+        try {
+            providerFactory.getExecutorForPrefix(definition.provider)
+            resolveKoogModel(definition)
+            ModelAvailability(ready = true)
+        } catch (e: ModelRegistryError.MissingApiKey) {
+            ModelAvailability(ready = false, unavailableReason = "Missing ${e.envVar}")
+        } catch (e: ModelRegistryError.UnknownProvider) {
+            ModelAvailability(ready = false, unavailableReason = "Unsupported provider: ${e.provider}")
+        } catch (e: ModelRegistryError.UnknownModel) {
+            ModelAvailability(ready = false, unavailableReason = "Unknown model: ${e.modelId.raw}")
+        } catch (e: IllegalStateException) {
+            ModelAvailability(ready = false, unavailableReason = e.message ?: "Provider configuration incomplete")
+        } catch (e: Exception) {
+            ModelAvailability(ready = false, unavailableReason = e.message ?: "Provider unavailable")
+        }
 
     fun invalidateExecutorCache(providerPrefix: String? = null) {
         val provider = providerPrefix?.let {

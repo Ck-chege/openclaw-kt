@@ -25,6 +25,8 @@ data class ModelInfo(
     val id: String,
     val provider: String,
     val displayName: String,
+    val ready: Boolean = true,
+    val unavailableReason: String? = null,
 )
 
 /**
@@ -48,15 +50,11 @@ fun registerConfigHandlers(
     // models.list -- Return available models from the registry
     router.register("models.list") { _, _ ->
         logger.debug { "Handling models.list" }
-        val models = modelLister()
+        val supportedModels = modelLister()
+        val readyModels = supportedModels.filter { it.ready }
         buildJsonObject {
-            put("models", JsonArray(models.map { model ->
-                buildJsonObject {
-                    put("id", JsonPrimitive(model.id))
-                    put("provider", JsonPrimitive(model.provider))
-                    put("name", JsonPrimitive(model.displayName))
-                }
-            }))
+            put("models", JsonArray(readyModels.map(::modelInfoToJson)))
+            put("supportedModels", JsonArray(supportedModels.map(::modelInfoToJson)))
         }
     }
 
@@ -69,3 +67,12 @@ fun registerConfigHandlers(
         }
     }
 }
+
+private fun modelInfoToJson(model: ModelInfo): JsonObject =
+    buildJsonObject {
+        put("id", JsonPrimitive(model.id))
+        put("provider", JsonPrimitive(model.provider))
+        put("name", JsonPrimitive(model.displayName))
+        put("ready", JsonPrimitive(model.ready))
+        model.unavailableReason?.let { put("unavailableReason", JsonPrimitive(it)) }
+    }

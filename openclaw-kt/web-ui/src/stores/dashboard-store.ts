@@ -6,12 +6,16 @@ import { notify } from '@/lib/notifications';
 interface ModelEntry {
   id: string;
   displayName: string;
+  provider?: string;
+  ready?: boolean;
+  unavailableReason?: string;
 }
 
 interface DashboardStore {
   sessions: SessionMeta[];
   config: Record<string, unknown> | null;
   models: ModelEntry[];
+  supportedModels: ModelEntry[];
   selectedModelId: string | null;
   loading: boolean;
 
@@ -27,6 +31,7 @@ export const useDashboardStore = create<DashboardStore>((set) => ({
   sessions: [],
   config: null,
   models: [],
+  supportedModels: [],
   selectedModelId: null,
   loading: false,
 
@@ -52,12 +57,31 @@ export const useDashboardStore = create<DashboardStore>((set) => ({
   fetchModels: async (client: GatewayClient) => {
     try {
       const res = await client.request('models.list');
-      const raw = (res.models || []) as Array<string | { id?: string; name?: string }>;
-      const models: ModelEntry[] = raw.map((m) => {
-        if (typeof m === 'string') return { id: m, displayName: m };
-        return { id: m.id || m.name || String(m), displayName: m.name || m.id || String(m) };
+      const parseModels = (value: unknown): ModelEntry[] => {
+        const raw = (value || []) as Array<string | { id?: string; name?: string; provider?: string; ready?: boolean; unavailableReason?: string }>;
+        return raw.map((m) => {
+          if (typeof m === 'string') return { id: m, displayName: m, ready: true };
+          return {
+            id: m.id || m.name || String(m),
+            displayName: m.name || m.id || String(m),
+            provider: m.provider,
+            ready: m.ready ?? true,
+            unavailableReason: m.unavailableReason,
+          };
+        });
+      };
+
+      const models = parseModels(res.models);
+      const supportedModels = parseModels(res.supportedModels ?? res.models);
+
+      set((state) => {
+        const selectedStillReady = state.selectedModelId != null && models.some((model) => model.id === state.selectedModelId);
+        return {
+          models,
+          supportedModels,
+          selectedModelId: selectedStillReady ? state.selectedModelId : (models[0]?.id ?? null),
+        };
       });
-      set({ models });
     } catch {
       // models endpoint may not exist yet
     }

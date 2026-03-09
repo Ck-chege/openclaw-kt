@@ -1,7 +1,9 @@
 package com.openclaw
 
 import com.openclaw.agent.isolation.AgentResolver
+import com.openclaw.agent.model.ModelDefinition
 import com.openclaw.agent.model.ModelRegistry
+import com.openclaw.agent.model.readClaudeCliCredentials
 import com.openclaw.agent.rpc.registerAgentHandlers
 import com.openclaw.agent.runtime.AgentRuntime
 import com.openclaw.agent.runtime.CompactionTrigger
@@ -261,9 +263,7 @@ fun main() {
 
     // Register RPC handlers
     registerConfigHandlers(gateway.router, configManager) {
-        modelRegistry.list().map { def ->
-            ModelInfo(id = def.id.raw, provider = def.provider, displayName = def.displayName)
-        }
+        buildModelCatalog(modelRegistry, configManager)
     }
     registerAgentHandlers(
         router = gateway.router,
@@ -318,6 +318,54 @@ private fun ensureDefaultConfig() {
     if (!configFile.toFile().exists()) {
         configFile.toFile().writeText(DEFAULT_CONFIG)
         logger.info { "Generated default config: $configFile" }
+    }
+}
+
+private fun buildModelCatalog(
+    sourceRegistry: ModelRegistry,
+    configManager: ConfigManager
+): List<ModelInfo> {
+    val currentConfig = configManager.config.value
+    val readinessRegistry = ModelRegistry(
+        apiKeyResolver = { envVar ->
+            val secrets = currentConfig.secrets
+            when (envVar) {
+                "ANTHROPIC_API_KEY" -> secrets.anthropicApiKey ?: System.getenv(envVar)
+                "OPENAI_API_KEY" -> secrets.openaiApiKey ?: System.getenv(envVar)
+                "GEMINI_API_KEY" -> secrets.googleApiKey ?: System.getenv(envVar)
+                "OPENROUTER_API_KEY" -> secrets.openrouterApiKey ?: System.getenv(envVar)
+                "MISTRAL_API_KEY" -> secrets.mistralApiKey ?: System.getenv(envVar)
+                "DEEPSEEK_API_KEY" -> secrets.deepseekApiKey ?: System.getenv(envVar)
+                "GROQ_API_KEY" -> secrets.groqApiKey ?: System.getenv(envVar)
+                "XAI_API_KEY" -> secrets.xaiApiKey ?: System.getenv(envVar)
+                "TOGETHER_API_KEY" -> secrets.togetherApiKey ?: System.getenv(envVar)
+                "NVIDIA_API_KEY" -> secrets.nvidiaApiKey ?: System.getenv(envVar)
+                "CEREBRAS_API_KEY" -> secrets.cerebrasApiKey ?: System.getenv(envVar)
+                "MOONSHOT_API_KEY" -> secrets.moonshotApiKey ?: System.getenv(envVar)
+                "VLLM_API_KEY" -> secrets.vllmApiKey ?: System.getenv(envVar)
+                "LITELLM_API_KEY" -> secrets.litellmApiKey ?: System.getenv(envVar)
+                "AZURE_OPENAI_API_KEY" -> secrets.azureApiKey ?: System.getenv(envVar)
+                else -> System.getenv(envVar)
+            }
+        },
+        providersConfig = currentConfig.providers,
+        claudeCliCredentialReader = { readClaudeCliCredentials() }
+    )
+
+    val definitions = sourceRegistry.list()
+        .sortedWith(compareBy<ModelDefinition>({ it.provider }, { it.displayName }))
+
+    definitions.forEach(readinessRegistry::register)
+
+    return definitions.map { def ->
+        val availability = readinessRegistry.availability(def)
+        ModelInfo(
+            id = def.id.raw,
+            provider = def.provider,
+            displayName = def.displayName,
+            ready = availability.ready,
+            unavailableReason = availability.unavailableReason
+        )
     }
 }
 
