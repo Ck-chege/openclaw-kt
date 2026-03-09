@@ -118,7 +118,7 @@
   - [x] Apply `perFileCharLimit` in `PromptAssembler` — `enforcePerFileLimits()` now called before `enforceWorkspaceTotalCap`; individual files capped at 20,000 chars
   - [x] Fix `RunManager.steer()` — cancel-and-log pattern; steer messages were previously enqueued into a channel nobody read
   - [x] Fix `JsonlSessionProvider` index race condition — global `indexMutex` (`withIndexWrite`) wraps all `loadIndex()`/`saveIndex()` pairs; concurrent sessions no longer overwrite each other's index entries
-  - [x] Remove unused `SessionMetadataTable` — replaced with TODO for when Postgres becomes primary store
+  - [x] Remove unused `SessionMetadataTable` — replaced with TODO for when a dedicated SQL metadata store becomes necessary
 
 - [x] **3.1 Koog integration scaffold**
   - [x] Create `agent-engine/` module with Koog dependencies (koog-agents, prompt-executor-anthropic, prompt-executor-openai)
@@ -214,6 +214,13 @@
   - [x] Handle NO_REPLY response (nothing to store — skip)
   - [x] Wire into compaction trigger in session store
 
+- [ ] **3.11.1 Compaction authority cleanup**
+  > Ref: SPEC.md §3.4, §4
+  - [ ] Remove Koog `nodeLLMCompressHistory(...)` from the primary runtime strategy path
+  - [ ] Make `CompactionEngine` the sole authoritative transcript compaction policy
+  - [ ] Keep Koog persistence for execution recovery only, not transcript compaction
+  - [ ] Write regression tests: long tool loop does not invoke Koog prompt-history compression implicitly
+
 - [x] **3.12 Prompt size limits & truncation**
   > Ref: SPEC.md §9.6
   - [x] Implement per-file truncation with head/tail markers (default 20,000 chars)
@@ -225,7 +232,7 @@
 
 ### Epic 4: Session Store & Persistence
 > **Dependencies:** Epic 1 (protocol)
-> **Outcome:** JSONL session transcripts + Postgres checkpoints working together
+> **Outcome:** JSONL session transcripts + archival compaction chain + Koog runtime persistence working together
 
 - [x] **4.1 JSONL session provider**
   - [x] Implement `JsonlSessionProvider` with `sessions.json` index file
@@ -241,25 +248,36 @@
   - [x] Wire `sessions.list` / `sessions.history` / `sessions.delete` / `sessions.reset` RPC handlers
   - [x] Write tests: full CRUD lifecycle
 
-- [x] **4.3 Compaction**
+- [x] **4.3 Compaction v1 (in-place rewrite, now superseded)**
   - [x] Implement compaction trigger: detect when token count approaches limit (~200K)
   - [x] Implement compaction logic: take oldest N messages → LLM summarization → ~2K token summary
   - [x] Replace old messages with `CompactionSummary` in JSONL
   - [x] Update session metadata (compaction count, token savings)
   - [x] Write tests: compaction fires at threshold, summary replaces old messages
 
-- [x] **4.4 Postgres checkpoint provider**
-  - [x] Set up Exposed ORM with PostgreSQL driver in `session-store/` module
-  - [x] Create `checkpoints` table (session_key, graph_node, graph_state JSONB, updated_at)
-  - [x] Create `session_metadata` table (session_key, agent_id, channel, model_id, timestamps, counts)
-  - [x] Implement `PostgresCheckpointProvider.saveCheckpoint()` / `loadCheckpoint()` / `deleteCheckpoints()`
-  - [x] Write tests (with testcontainers-postgres): save → load round-trip, delete cleans up
+- [ ] **4.4 Compaction v2 (archival rotation + lineage)**
+  > Ref: SPEC.md §3.4, §4, §11.3
+  - [ ] Archive the previous active transcript instead of overwriting it in place
+  - [ ] Rename archived transcripts with timestamped `.compacted.<ISO-8601-UTC>.jsonl` suffixes
+  - [ ] Create a new active transcript file with a new UUID after every compaction
+  - [ ] Persist archive lineage (`previousArchiveFileId`) so compacted transcripts form a retrievable chain
+  - [ ] Change the keep-window budget from `triggerThreshold / 2` to `triggerThreshold / 4`
+  - [ ] Exclude prior compaction summaries from the summarization source set
+  - [ ] Extend history/retrieval APIs to optionally traverse archived transcript chain
+  - [ ] Write integration tests: compact twice → archive chain remains intact and active transcript points to newest file
 
-- [x] **4.5 Composite session store**
-  - [x] Implement `CompositeSessionStore` combining JSONL + Postgres providers
-  - [x] Writes go to both layers; reads prefer JSONL for history, Postgres for checkpoint state
-  - [x] Implement fallback: if Postgres unavailable, degrade to JSONL-only mode
-  - [x] Write integration test: crash → recover from checkpoint + replay JSONL
+- [x] **4.5 Koog persistence backend (SQLite default)**
+  - [x] Set up Exposed ORM with SQLite driver in `session-store/` module
+  - [x] Implement Koog persistence storage provider for checkpoint payloads
+  - [x] Persist Koog checkpoint state with stable `agentId = sessionKey.raw`
+  - [x] Implement checkpoint cleanup on session reset/delete
+  - [x] Write tests: save → load latest round-trip, filtered load, delete cleanup
+
+- [x] **4.6 Composite session store**
+  - [x] Keep JSONL as the source of truth for conversation history
+  - [x] Keep Koog persistence as the source of truth for resumable execution state
+  - [x] Route reset/delete cleanup through the checkpoint cleaner instead of custom recovery logic
+  - [x] Write integration test: crash → recover execution from Koog persistence + replay JSONL history
 
 ---
 
@@ -560,7 +578,7 @@
 - [ ] **13.3 Metrics & health**
   - [ ] Expose Prometheus-compatible metrics endpoint
   - [ ] Track: active sessions, agent runs/min, tool calls/min, model latency, error rate
-  - [ ] Implement `GET /health` with detailed subsystem checks (Postgres, channels, model providers)
+  - [ ] Implement `GET /health` with detailed subsystem checks (persistence backend, channels, model providers)
 
 ---
 
@@ -619,7 +637,7 @@
   - [ ] Implement `./gradlew :app:run` for development
   - [ ] Implement `./gradlew :app:shadowJar` for production fat JAR
   - [ ] Write Dockerfile with multi-stage build (Gradle → JRE runtime)
-  - [ ] Write `docker-compose.yml` with gateway + postgres services
+  - [ ] Write `docker-compose.yml` with gateway + mounted persistence volume
 
 - [ ] **15.4 Documentation**
   - [ ] Write `docs/architecture.md` — system overview for contributors

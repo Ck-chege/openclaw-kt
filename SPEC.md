@@ -20,7 +20,7 @@ OpenClaw is the fastest-growing open-source AI agent platform (247K GitHub stars
 4. **Backpressure-safe streaming** — Kotlin Flow replaces event emitters for token-by-token delivery
 5. **Crash recovery** — Koog graph-based checkpointing enables resume-at-exact-point after process failure
 6. **Multiplatform protocol** — shared `protocol/` module compiles for JVM, iOS, Android, JS — one source of truth
-7. **Enterprise readiness** — JVM deployment, OpenTelemetry observability, Postgres persistence, Docker support
+7. **Enterprise readiness** — JVM deployment, OpenTelemetry observability, SQLite-first Koog persistence with pluggable SQL backends, Docker support
 
 ### Non-Goals
 
@@ -63,7 +63,7 @@ openclaw-kt/
 ├── protocol/                     # Shared types (KMP: JVM, iOS, Android, JS)
 ├── gateway-core/                 # Ktor server, WS protocol, config, routing
 ├── agent-engine/                 # Koog agent wrappers, workspace, prompt assembly
-├── session-store/                # JSONL transcripts + Postgres checkpoints
+├── session-store/                # JSONL transcripts + archived compaction chain + Koog persistence
 ├── channels/
 │   ├── channel-api/              # Channel interface contracts
 │   ├── telegram/
@@ -114,8 +114,8 @@ openclaw-kt/
                                 │
                     ┌───────────┴───────────┐
                     ▼                       ▼
-            ┌─── JSONL ───┐      ┌─── Postgres ───┐
-            │ Transcripts  │      │ Checkpoints    │
+            ┌─── JSONL ───┐      ┌─── SQLite ─────┐
+            │ Transcripts  │      │ Koog Checkpts  │
             │ sessions.json│      │ Graph State    │
             │ *.jsonl      │      │ Agent Recovery │
             └──────────────┘      └────────────────┘
@@ -381,18 +381,11 @@ val openClawStrategy = strategy<String, String>("openclaw-agent") {
     val sendToLLM by nodeLLMRequest()
     val executeTool by nodeExecuteTool()
     val sendToolResult by nodeLLMSendToolResult()
-    val compressHistory by nodeLLMCompressHistory<ReceivedToolResult>()
 
     edge(nodeStart forwardTo sendToLLM)
     edge((sendToLLM forwardTo nodeFinish) onAssistantMessage { true })
     edge((sendToLLM forwardTo executeTool) onToolCall { true })
-    edge((executeTool forwardTo compressHistory) onCondition { _ ->
-        llm.readSession { prompt.messages.size > 100 }
-    })
-    edge(compressHistory forwardTo sendToolResult)
-    edge((executeTool forwardTo sendToolResult) onCondition { _ ->
-        llm.readSession { prompt.messages.size <= 100 }
-    })
+    edge(executeTool forwardTo sendToolResult)
     edge(sendToolResult forwardTo sendToLLM)
 }
 
@@ -412,19 +405,19 @@ class ModelRegistry(private val config: ModelsConfig) {
 
 ### 3.4 `session-store/` — Dual-Layer Persistence
 
-**Purpose:** Manages conversation state with two complementary persistence layers.
+**Purpose:** Manages durable conversation history and resumable agent execution with separate responsibilities.
 
 **Layer 1 — JSONL Transcripts:**
 - Human-readable conversation logs (one JSON object per line)
-- Git-versionable session history
+- Archived transcript lineage across compactions
 - OpenClaw format compatible
 - `sessions.json` metadata index mapping session keys to entries
 
-**Layer 2 — Postgres Checkpoints:**
-- Koog graph-based state machine checkpoints
+**Layer 2 — Koog Runtime Persistence (SQLite by default):**
+- Koog-owned checkpoint data for resumable graph execution
 - Crash recovery at exact execution point
-- Indexed queries over session metadata
-- Full-text search over conversation history
+- Automatic rollback/tombstone handling managed by Koog
+- Backend is pluggable: SQLite is the default local runtime store, SQL backends can be added later
 
 **Key Classes:**
 
@@ -443,20 +436,32 @@ interface SessionStore {
 
 // JSONL Provider
 class JsonlSessionProvider(private val sessionsDir: Path) : SessionStore {
-    // sessions.json index + per-session .jsonl files
+    // sessions.json index + active transcript files + archived compacted transcripts
 }
 
-// Postgres Checkpoint Provider
-class PostgresCheckpointProvider(private val dataSource: DataSource) {
-    suspend fun saveCheckpoint(key: SessionKey, state: GraphState)
-    suspend fun loadCheckpoint(key: SessionKey): GraphState?
+// Koog Persistence Provider
+class SqliteKoogPersistenceProvider(private val dbPath: Path) {
+    suspend fun saveCheckpoint(agentId: String, state: AgentCheckpointData)
+    suspend fun loadLatest(agentId: String): AgentCheckpointData?
     suspend fun deleteCheckpoints(key: SessionKey)
 }
 
-// Composite Store (uses both)
+// Archive lineage for compacted transcripts
+data class SessionArchiveRecord(
+    val sessionKey: SessionKey,
+    val archivedFileId: String,
+    val archivedPath: String,
+    val previousArchiveFileId: String?,
+    val compactedAt: Instant,
+    val messagesCompacted: Int,
+    val tokensBefore: Int,
+    val tokensAfter: Int
+)
+
+// Composite Store (transcripts + cleanup hooks)
 class CompositeSessionStore(
     private val jsonl: JsonlSessionProvider,
-    private val postgres: PostgresCheckpointProvider
+    private val checkpointCleaner: SessionCheckpointCleaner?
 ) : SessionStore
 
 // Session Message Types
@@ -479,31 +484,62 @@ class SessionWriteLock {
 }
 ```
 
-**Postgres Schema (for checkpoints):**
+**Compaction Contract:**
+
+- `CompactionEngine` is the authoritative compaction policy for session transcripts.
+- Koog prompt-history compression is not the primary compaction path.
+- When compaction fires, the current active transcript is archived, not overwritten.
+- The archived transcript is renamed with a timestamped `.compacted.<ISO-8601-UTC>.jsonl` suffix.
+- A new active transcript file with a new UUID is created and becomes the session's `fileId`.
+- The new active transcript contains:
+  - a leading `CompactionSummary`
+  - the kept recent messages
+- Archived transcripts are linked as a chain via `previousArchiveFileId`.
+- The keep window is token-budget based: preserve recent messages up to `triggerThreshold / 4`.
+
+**SQLite / SQL Schema (target shape):**
 
 ```sql
-CREATE TABLE checkpoints (
-    session_key    TEXT PRIMARY KEY,
-    graph_node     TEXT NOT NULL,
-    graph_state    JSONB NOT NULL,
-    message_count  INT NOT NULL,
-    updated_at     TIMESTAMPTZ DEFAULT now()
+CREATE TABLE koog_checkpoints (
+    agent_id       TEXT NOT NULL,
+    checkpoint_id  TEXT NOT NULL,
+    created_at     TEXT NOT NULL,
+    version        INTEGER NOT NULL,
+    node_path      TEXT,
+    is_tombstone   INTEGER NOT NULL DEFAULT 0,
+    payload        TEXT NOT NULL,
+    PRIMARY KEY (agent_id, checkpoint_id)
 );
+
+CREATE INDEX idx_koog_checkpoints_agent_created
+    ON koog_checkpoints(agent_id, created_at DESC);
 
 CREATE TABLE session_metadata (
     session_key    TEXT PRIMARY KEY,
     agent_id       TEXT NOT NULL,
     channel        TEXT,
     model_id       TEXT,
-    created_at     TIMESTAMPTZ DEFAULT now(),
+    created_at     TEXT NOT NULL,
     last_message   TIMESTAMPTZ,
+    file_id        TEXT NOT NULL,
     message_count  INT DEFAULT 0,
     compaction_count INT DEFAULT 0,
     total_tokens   BIGINT DEFAULT 0
 );
+
+CREATE TABLE session_archives (
+    session_key          TEXT NOT NULL,
+    archived_file_id     TEXT PRIMARY KEY,
+    archived_path        TEXT NOT NULL,
+    previous_archive_id  TEXT,
+    compacted_at         TEXT NOT NULL,
+    messages_compacted   INT NOT NULL,
+    tokensBefore         INT NOT NULL,
+    tokensAfter          INT NOT NULL
+);
 ```
 
-**External Dependencies:** `kotlinx-datetime`, `exposed-core`, `exposed-jdbc`, `postgresql` (JDBC driver)
+**External Dependencies:** `kotlinx-datetime`, `exposed-core`, `exposed-jdbc`, `sqlite-jdbc`
 
 ---
 
@@ -905,16 +941,17 @@ class EmbeddingCache(private val cacheDir: Path)
 
 | Layer | Purpose | Format | Strengths |
 |-------|---------|--------|-----------|
-| **JSONL** | Session transcripts | One JSON per line, one file per session | Human-readable, `grep`-able, git-versionable, OpenClaw compatible, zero-infra for local dev |
-| **Postgres** | State machine checkpoints | Relational tables with JSONB | Crash recovery at exact graph node, indexed queries, full-text search, concurrent multi-gateway access |
+| **JSONL** | Session transcripts + compaction lineage | One JSON per line, one active file plus archived compacted files | Human-readable, `grep`-able, preserves transcript history, zero-infra for local dev |
+| **SQLite / SQL** | Koog execution checkpoints | Relational rows with serialized checkpoint payloads | Crash recovery at exact graph node, framework-native rollback semantics, pluggable backend |
 
 ### How They Work Together
 
 1. Every message exchange appends to the JSONL file (source of truth for conversation content)
-2. After each tool execution or model call, Koog persists a graph checkpoint to Postgres
-3. On crash recovery: load JSONL for conversation history, load Postgres checkpoint for execution state
-4. Compaction rewrites the JSONL file (summarize old messages) and updates the Postgres checkpoint
-5. Local development can run JSONL-only (no Postgres required)
+2. During execution, Koog persists resumable checkpoint data to SQLite through its persistence API
+3. On crash recovery: load JSONL for conversation history, let Koog restore execution state from its checkpoint store
+4. Compaction archives the old active transcript, writes a new active transcript, and records archive lineage
+5. Compaction policy is owned by `CompactionEngine`, not by Koog prompt-history compression
+6. Local development uses JSONL + SQLite with no external database requirement
 
 ---
 
@@ -1028,8 +1065,8 @@ bindings = [
 | Serialization | kotlinx-serialization | 1.7.x | JSON, HOCON |
 | Coroutines | kotlinx-coroutines | 1.10.x | Structured concurrency |
 | DateTime | kotlinx-datetime | 0.6.x | Cross-platform dates |
-| Database | Exposed | 0.58.x | Postgres ORM |
-| DB Driver | PostgreSQL JDBC | 42.7.x | Database connectivity |
+| Database | Exposed | 0.58.x | SQL access for persistence backends |
+| DB Driver | SQLite JDBC | 3.51.x | Default local Koog persistence backend |
 | Discord | JDA | 5.x | Discord bot library |
 | Telegram | vendeli/telegram-bot | 8.x | Telegram bot library |
 | Slack | slack-api-client | 1.x | Slack Bolt SDK |
@@ -1048,23 +1085,23 @@ bindings = [
 
 ### Local Development
 - `./gradlew :app:run` — starts gateway on `127.0.0.1:18789`
-- JSONL-only mode (no Postgres required)
+- JSONL transcripts + SQLite-backed Koog persistence by default
 - Config at `~/.openclaw/openclaw.conf`
 
 ### Single Server (Production)
 - `./gradlew :app:shadowJar` → fat JAR
 - systemd service (Linux) or launchd agent (macOS)
-- Postgres for checkpoints
+- SQLite by default; promote to another SQL backend if multi-node durability is needed
 - Reverse proxy (nginx/caddy) optional for TLS
 
 ### Docker
 - `Dockerfile` with multi-stage build (Gradle build → JRE runtime)
-- `docker-compose.yml` with gateway + postgres services
+- `docker-compose.yml` with gateway + mounted persistence volume
 - Environment variables for all secrets
 
 ### Multi-Gateway (Future)
-- Multiple gateway instances sharing Postgres
-- Session locks via Postgres advisory locks
+- Multiple gateway instances sharing a centralized SQL persistence backend
+- Session locks via backend-specific coordination (TBD)
 - Sticky sessions via session key hashing
 
 ---
@@ -1309,6 +1346,11 @@ If nothing to store, reply with NO_REPLY.
 ```
 
 This ensures the agent persists important context to disk before the context window is compacted.
+
+After the flush succeeds, compaction rotates the transcript instead of rewriting it in place:
+1. Archive the previous active transcript with a timestamped `.compacted.<ISO-8601-UTC>.jsonl` suffix
+2. Record the archive's predecessor link so compacted transcripts form a retrievable chain
+3. Create a new active transcript file containing `CompactionSummary + kept recent messages`
 
 ### 11.4 Session Memory Hook
 
