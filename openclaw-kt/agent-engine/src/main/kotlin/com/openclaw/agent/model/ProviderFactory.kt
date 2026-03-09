@@ -1,8 +1,18 @@
 package com.openclaw.agent.model
 
+import ai.koog.prompt.executor.clients.deepseek.DeepSeekClientSettings
+import ai.koog.prompt.executor.clients.deepseek.DeepSeekLLMClient
+import ai.koog.prompt.executor.clients.openai.OpenAIClientSettings
+import ai.koog.prompt.executor.clients.openai.OpenAILLMClient
+import ai.koog.prompt.executor.llms.SingleLLMPromptExecutor
 import ai.koog.prompt.executor.llms.all.simpleAnthropicExecutor
+import ai.koog.prompt.executor.llms.all.simpleGoogleAIExecutor
+import ai.koog.prompt.executor.llms.all.simpleMistralAIExecutor
+import ai.koog.prompt.executor.llms.all.simpleOllamaAIExecutor
 import ai.koog.prompt.executor.llms.all.simpleOpenAIExecutor
+import ai.koog.prompt.executor.llms.all.simpleOpenRouterExecutor
 import ai.koog.prompt.executor.model.PromptExecutor
+import com.openclaw.gateway.config.ProvidersConfig
 import io.github.oshai.kotlinlogging.KotlinLogging
 import java.util.concurrent.ConcurrentHashMap
 
@@ -11,111 +21,271 @@ private val logger = KotlinLogging.logger {}
 // Secondary env var for explicit setup-token — more descriptive than ANTHROPIC_API_KEY
 const val CLAUDE_SETUP_TOKEN_ENV = "CLAUDE_SETUP_TOKEN"
 
-enum class LLMProvider(val prefix: String, val envVar: String) {
-    ANTHROPIC("anthropic", "ANTHROPIC_API_KEY"),
-    OPENAI("openai", "OPENAI_API_KEY");
+/**
+ * All supported LLM providers.
+ *
+ * [prefix] is the string used in model refs (e.g. "openai/gpt-4o").
+ * [envVar] is the primary environment variable for the API key.
+ * [aliases] are alternate prefix spellings accepted in model refs.
+ */
+enum class LLMProvider(
+    val prefix: String,
+    val envVar: String,
+    val aliases: List<String> = emptyList()
+) {
+    // ── First-class koog executors ────────────────────────────────────────────
+    ANTHROPIC("anthropic", "ANTHROPIC_API_KEY", listOf("claude", "claude-cli")),
+    OPENAI("openai", "OPENAI_API_KEY"),
+    GOOGLE("google", "GEMINI_API_KEY", listOf("gemini", "google-gemini")),
+    OPENROUTER("openrouter", "OPENROUTER_API_KEY"),
+    OLLAMA("ollama", "OLLAMA_API_KEY"),          // key optional; uses baseUrl from config
+    MISTRAL("mistral", "MISTRAL_API_KEY"),
+    DEEPSEEK("deepseek", "DEEPSEEK_API_KEY"),
+
+    // ── OpenAI-compatible (custom base URL) ───────────────────────────────────
+    GROQ("groq", "GROQ_API_KEY"),
+    XAI("xai", "XAI_API_KEY", listOf("grok")),
+    TOGETHER("together", "TOGETHER_API_KEY", listOf("together-ai")),
+    NVIDIA("nvidia", "NVIDIA_API_KEY"),
+    CEREBRAS("cerebras", "CEREBRAS_API_KEY"),
+    MOONSHOT("moonshot", "MOONSHOT_API_KEY", listOf("kimi")),
+    VLLM("vllm", "VLLM_API_KEY"),               // local; baseUrl from config
+    LITELLM("litellm", "LITELLM_API_KEY"),       // proxy; baseUrl from config
+
+    // ── Needs special config ──────────────────────────────────────────────────
+    AZURE("azure", "AZURE_OPENAI_API_KEY", listOf("azure-openai"));
 
     companion object {
-        fun fromPrefix(prefix: String): LLMProvider? =
-            entries.find { it.prefix == prefix.lowercase() }
+        /** Base URLs for OpenAI-compatible providers (used when no config override). */
+        val OPENAI_COMPAT_BASE_URLS = mapOf(
+            GROQ to "https://api.groq.com/openai/v1",
+            XAI to "https://api.x.ai/v1",
+            TOGETHER to "https://api.together.xyz/v1",
+            NVIDIA to "https://integrate.api.nvidia.com/v1",
+            CEREBRAS to "https://api.cerebras.ai/v1",
+            MOONSHOT to "https://api.moonshot.ai/v1"
+        )
+
+        fun fromPrefix(prefix: String): LLMProvider? {
+            val normalized = prefix.trim().lowercase()
+            return entries.find { p ->
+                p.prefix == normalized || p.aliases.contains(normalized)
+            }
+        }
     }
 }
 
+/**
+ * Factory that creates and caches [PromptExecutor] instances per provider.
+ *
+ * Supports all providers in [LLMProvider]. API keys are resolved in priority order:
+ * 1. [SecretsConfig] in the config file
+ * 2. Environment variables (using [LLMProvider.envVar])
+ *
+ * Thread-safe: uses [ConcurrentHashMap] for caching.
+ */
 class ProviderFactory(
     private val apiKeyResolver: (String) -> String? = { System.getenv(it) },
+    private val providersConfig: ProvidersConfig = ProvidersConfig(),
+    private val secretsResolver: (com.openclaw.gateway.config.SecretsConfig) -> Unit = {},
+    private val secrets: com.openclaw.gateway.config.SecretsConfig = com.openclaw.gateway.config.SecretsConfig(),
     /** Override for testing — returns null to simulate no CLI credentials present. */
     private val claudeCliCredentialReader: () -> ClaudeCliCredential? = { readClaudeCliCredentials() }
 ) {
-    private data class CachedExecutor(
-        val cacheKey: String,
-        val executor: PromptExecutor
-    )
-
+    private data class CachedExecutor(val cacheKey: String, val executor: PromptExecutor)
     private val executorCache = ConcurrentHashMap<LLMProvider, CachedExecutor>()
 
     // Credential manager for Anthropic — shared so token refresh state is preserved
     private var anthropicCredManager: AnthropicCredentialManager? = null
 
-    fun getExecutor(provider: LLMProvider): PromptExecutor {
-        return when (provider) {
-            LLMProvider.ANTHROPIC -> getAnthropicExecutor()
-            LLMProvider.OPENAI -> getOpenAiExecutor()
-        }
+    fun getExecutor(provider: LLMProvider): PromptExecutor = when (provider) {
+        LLMProvider.ANTHROPIC -> getAnthropicExecutor()
+        LLMProvider.OPENAI    -> getSimpleExecutor(provider) { simpleOpenAIExecutor(it) }
+        LLMProvider.GOOGLE    -> getSimpleExecutor(provider) { simpleGoogleAIExecutor(it) }
+        LLMProvider.OPENROUTER -> getSimpleExecutor(provider) { simpleOpenRouterExecutor(it) }
+        LLMProvider.MISTRAL   -> getSimpleExecutor(provider) { simpleMistralAIExecutor(it) }
+        LLMProvider.OLLAMA    -> getOllamaExecutor()
+        LLMProvider.DEEPSEEK  -> getDeepSeekExecutor()
+        LLMProvider.AZURE     -> getAzureExecutor()
+        // All OpenAI-compatible providers with hardcoded base URLs
+        LLMProvider.GROQ, LLMProvider.XAI, LLMProvider.TOGETHER,
+        LLMProvider.NVIDIA, LLMProvider.CEREBRAS, LLMProvider.MOONSHOT ->
+            getOpenAICompatExecutor(provider, LLMProvider.OPENAI_COMPAT_BASE_URLS[provider]!!)
+        LLMProvider.VLLM      -> getOpenAICompatExecutor(provider, providersConfig.vllm.baseUrl)
+        LLMProvider.LITELLM   -> getOpenAICompatExecutor(provider, providersConfig.litellm.baseUrl)
     }
 
+    // ── Anthropic ─────────────────────────────────────────────────────────────
+
     private fun getAnthropicExecutor(): PromptExecutor {
-        // Resolve explicit key from config — check CLAUDE_SETUP_TOKEN first, then ANTHROPIC_API_KEY
-        val explicitKey = apiKeyResolver(CLAUDE_SETUP_TOKEN_ENV)?.trim()?.takeIf { it.isNotEmpty() }
-            ?: apiKeyResolver(LLMProvider.ANTHROPIC.envVar)?.trim()?.takeIf { it.isNotEmpty() }
+        val explicitKey = resolveSecret(LLMProvider.ANTHROPIC.envVar, secrets.anthropicApiKey)
+            ?: resolveSecret(CLAUDE_SETUP_TOKEN_ENV, null)
 
         val mode = detectAnthropicAuthMode(explicitKey)
         val cacheKey = explicitKey ?: "claude-cli"
 
         val cached = executorCache[LLMProvider.ANTHROPIC]
-        if (cached != null && cached.cacheKey == cacheKey) {
-            return cached.executor
-        }
+        if (cached != null && cached.cacheKey == cacheKey) return cached.executor
 
         logger.info { "Creating Anthropic executor (mode: $mode)" }
 
         val baseExecutor = when (mode) {
             AnthropicAuthMode.API_KEY -> {
-                // Regular API key — use Koog's standard executor
-                val key = explicitKey!!
                 logger.info { "Using Anthropic API key auth" }
-                simpleAnthropicExecutor(key)
+                simpleAnthropicExecutor(explicitKey!!)
             }
             AnthropicAuthMode.OAUTH_TOKEN, AnthropicAuthMode.CLAUDE_CLI -> {
-                // OAuth path — create credential manager and OAuth executor
-                val manager = AnthropicCredentialManager(
-                    explicitKey = explicitKey,
-                    homeDir = null
-                )
+                val manager = AnthropicCredentialManager(explicitKey = explicitKey, homeDir = null)
                 anthropicCredManager = manager
 
-                if (mode == AnthropicAuthMode.OAUTH_TOKEN) {
-                    logger.info { "Using Anthropic setup-token (OAuth, no auto-refresh)" }
-                } else {
-                    // CLAUDE_CLI mode: check if credentials are actually available
+                if (mode == AnthropicAuthMode.CLAUDE_CLI) {
                     val cliCred = claudeCliCredentialReader()
-                    if (cliCred != null) {
-                        logger.info {
-                            "Using Claude CLI OAuth credentials " +
-                            "(type=${if (cliCred.canRefresh()) "full-oauth" else "setup-token-only"}, " +
-                            "expires=${java.util.Date(cliCred.expiresAt)})"
-                        }
-                    } else {
-                        // No CLI credentials and no explicit key — fail early with a clear error
-                        throw ModelRegistryError.MissingApiKey(
-                            LLMProvider.ANTHROPIC.prefix,
-                            LLMProvider.ANTHROPIC.envVar
-                        )
+                        ?: throw ModelRegistryError.MissingApiKey(LLMProvider.ANTHROPIC.prefix, LLMProvider.ANTHROPIC.envVar)
+                    logger.info {
+                        "Using Claude CLI OAuth (type=${if (cliCred.canRefresh()) "full-oauth" else "setup-token-only"}, " +
+                        "expires=${java.util.Date(cliCred.expiresAt)})"
                     }
+                } else {
+                    logger.info { "Using Anthropic setup-token (OAuth, no auto-refresh)" }
                 }
 
                 createAnthropicOAuthExecutor(tokenSupplier = { manager.getAccessToken() })
             }
         }
 
-        val wrapped = RetryingExecutor(baseExecutor)
-        executorCache[LLMProvider.ANTHROPIC] = CachedExecutor(cacheKey = cacheKey, executor = wrapped)
-        return wrapped
-    }
-
-    private fun getOpenAiExecutor(): PromptExecutor {
-        val apiKey = apiKeyResolver(LLMProvider.OPENAI.envVar)
-            ?: throw ModelRegistryError.MissingApiKey(LLMProvider.OPENAI.prefix, LLMProvider.OPENAI.envVar)
-
-        val cached = executorCache[LLMProvider.OPENAI]
-        if (cached != null && cached.cacheKey == apiKey) {
-            return cached.executor
+        return RetryingExecutor(baseExecutor).also {
+            executorCache[LLMProvider.ANTHROPIC] = CachedExecutor(cacheKey, it)
         }
-
-        logger.info { "Creating OpenAI executor" }
-        val wrapped = RetryingExecutor(simpleOpenAIExecutor(apiKey))
-        executorCache[LLMProvider.OPENAI] = CachedExecutor(cacheKey = apiKey, executor = wrapped)
-        return wrapped
     }
+
+    // ── Ollama ────────────────────────────────────────────────────────────────
+
+    private fun getOllamaExecutor(): PromptExecutor {
+        val baseUrl = providersConfig.ollama.baseUrl
+        val cached = executorCache[LLMProvider.OLLAMA]
+        if (cached != null && cached.cacheKey == baseUrl) return cached.executor
+
+        logger.info { "Creating Ollama executor (baseUrl=$baseUrl)" }
+        return RetryingExecutor(simpleOllamaAIExecutor(baseUrl)).also {
+            executorCache[LLMProvider.OLLAMA] = CachedExecutor(baseUrl, it)
+        }
+    }
+
+    // ── DeepSeek ──────────────────────────────────────────────────────────────
+
+    private fun getDeepSeekExecutor(): PromptExecutor {
+        val apiKey = resolveSecret(LLMProvider.DEEPSEEK.envVar, secrets.deepseekApiKey)
+            ?: throw ModelRegistryError.MissingApiKey(LLMProvider.DEEPSEEK.prefix, LLMProvider.DEEPSEEK.envVar)
+
+        val cached = executorCache[LLMProvider.DEEPSEEK]
+        if (cached != null && cached.cacheKey == apiKey) return cached.executor
+
+        logger.info { "Creating DeepSeek executor" }
+        val client = DeepSeekLLMClient(apiKey, DeepSeekClientSettings())
+        return RetryingExecutor(SingleLLMPromptExecutor(client)).also {
+            executorCache[LLMProvider.DEEPSEEK] = CachedExecutor(apiKey, it)
+        }
+    }
+
+    // ── Azure OpenAI ──────────────────────────────────────────────────────────
+
+    private fun getAzureExecutor(): PromptExecutor {
+        val apiKey = resolveSecret(LLMProvider.AZURE.envVar, secrets.azureApiKey)
+            ?: throw ModelRegistryError.MissingApiKey(LLMProvider.AZURE.prefix, LLMProvider.AZURE.envVar)
+        val endpoint = providersConfig.azure.endpoint
+            ?: throw IllegalStateException("Azure provider requires providers.azure.endpoint in config")
+        val deployment = providersConfig.azure.deployment
+            ?: throw IllegalStateException("Azure provider requires providers.azure.deployment in config")
+
+        val cacheKey = "$apiKey:$endpoint:$deployment"
+        val cached = executorCache[LLMProvider.AZURE]
+        if (cached != null && cached.cacheKey == cacheKey) return cached.executor
+
+        logger.info { "Creating Azure OpenAI executor (endpoint=$endpoint, deployment=$deployment)" }
+
+        // Use koog's Azure executor (positional args: apiKey, endpoint, version, deployment)
+        val azureExecutor = ai.koog.prompt.executor.llms.all.simpleAzureOpenAIExecutor(
+            apiKey,
+            endpoint,
+            ai.koog.prompt.executor.clients.openai.azure.AzureOpenAIServiceVersion.fromString(
+                providersConfig.azure.apiVersion
+            ),
+            deployment
+        )
+        return RetryingExecutor(azureExecutor).also {
+            executorCache[LLMProvider.AZURE] = CachedExecutor(cacheKey, it)
+        }
+    }
+
+    // ── Generic OpenAI-compatible ─────────────────────────────────────────────
+
+    private fun getOpenAICompatExecutor(provider: LLMProvider, baseUrl: String): PromptExecutor {
+        val secretField = when (provider) {
+            LLMProvider.GROQ      -> secrets.groqApiKey
+            LLMProvider.XAI       -> secrets.xaiApiKey
+            LLMProvider.TOGETHER  -> secrets.togetherApiKey
+            LLMProvider.NVIDIA    -> secrets.nvidiaApiKey
+            LLMProvider.CEREBRAS  -> secrets.cerebrasApiKey
+            LLMProvider.MOONSHOT  -> secrets.moonshotApiKey
+            LLMProvider.VLLM      -> secrets.vllmApiKey
+            LLMProvider.LITELLM   -> secrets.litellmApiKey
+            else -> null
+        }
+        val apiKey = resolveSecret(provider.envVar, secretField)
+            ?: run {
+                // Some local providers (vllm, litellm) don't need a key — use placeholder
+                if (provider == LLMProvider.VLLM || provider == LLMProvider.LITELLM) "no-key"
+                else throw ModelRegistryError.MissingApiKey(provider.prefix, provider.envVar)
+            }
+
+        val cacheKey = "$apiKey:$baseUrl"
+        val cached = executorCache[provider]
+        if (cached != null && cached.cacheKey == cacheKey) return cached.executor
+
+        logger.info { "Creating ${provider.prefix} executor (baseUrl=$baseUrl)" }
+        val client = OpenAILLMClient(apiKey, OpenAIClientSettings(baseUrl = baseUrl))
+        return RetryingExecutor(SingleLLMPromptExecutor(client)).also {
+            executorCache[provider] = CachedExecutor(cacheKey, it)
+        }
+    }
+
+    // ── Simple executor helper ────────────────────────────────────────────────
+
+    private fun getSimpleExecutor(
+        provider: LLMProvider,
+        factory: (String) -> PromptExecutor
+    ): PromptExecutor {
+        val secretField = when (provider) {
+            LLMProvider.OPENAI      -> secrets.openaiApiKey
+            LLMProvider.GOOGLE      -> secrets.googleApiKey
+            LLMProvider.OPENROUTER  -> secrets.openrouterApiKey
+            LLMProvider.MISTRAL     -> secrets.mistralApiKey
+            else -> null
+        }
+        val apiKey = resolveSecret(provider.envVar, secretField)
+            ?: throw ModelRegistryError.MissingApiKey(provider.prefix, provider.envVar)
+
+        val cached = executorCache[provider]
+        if (cached != null && cached.cacheKey == apiKey) return cached.executor
+
+        logger.info { "Creating ${provider.prefix} executor" }
+        return RetryingExecutor(factory(apiKey)).also {
+            executorCache[provider] = CachedExecutor(apiKey, it)
+        }
+    }
+
+    // ── Key resolution ────────────────────────────────────────────────────────
+
+    /**
+     * Resolves an API key: config value takes priority over env var.
+     */
+    private fun resolveSecret(envVar: String, configValue: String?): String? {
+        val fromConfig = configValue?.trim()?.takeIf { it.isNotEmpty() }
+        if (fromConfig != null) return fromConfig
+        return apiKeyResolver(envVar)?.trim()?.takeIf { it.isNotEmpty() }
+    }
+
+    // ── Public API ────────────────────────────────────────────────────────────
 
     fun getExecutorForPrefix(prefix: String): PromptExecutor {
         val provider = LLMProvider.fromPrefix(prefix)
@@ -124,11 +294,8 @@ class ProviderFactory(
     }
 
     fun clear(provider: LLMProvider? = null) {
-        if (provider == null) {
-            executorCache.clear()
-            return
-        }
-        executorCache.remove(provider)
+        if (provider == null) executorCache.clear()
+        else executorCache.remove(provider)
     }
 
     fun invalidate(provider: LLMProvider? = null) = clear(provider)
