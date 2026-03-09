@@ -24,6 +24,7 @@ import com.openclaw.session.compaction.CompactionEngine
 import com.openclaw.session.compaction.CompactionResult
 import com.openclaw.session.composite.CompositeSessionStore
 import com.openclaw.session.jsonl.JsonlSessionProvider
+import com.openclaw.session.sqlite.SqliteKoogPersistenceProvider
 import ai.koog.agents.core.tools.ToolRegistry
 import com.openclaw.tools.ToolRegistryFactory
 import com.openclaw.tools.exec.BackgroundProcessTracker
@@ -66,21 +67,45 @@ fun main() {
     val appScope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
     configManager.startFileWatcher(appScope)
 
+    val checkpointProvider = if (config.persistence.enabled) {
+        val sqlitePath = resolveConfiguredPath(config.persistence.sqlite.path)
+        try {
+            SqliteKoogPersistenceProvider.connect(sqlitePath).also {
+                logger.info { "Koog persistence initialized (SQLite: $sqlitePath)" }
+            }
+        } catch (e: Exception) {
+            logger.warn(e) { "Koog persistence initialization failed, continuing without resumable checkpoints" }
+            null
+        }
+    } else {
+        logger.info { "Koog persistence disabled" }
+        null
+    }
+
     // Session store
     val sessionsDir = AppPaths.sessions
     val jsonlProvider = JsonlSessionProvider(sessionsDir)
-    val sessionStore = CompositeSessionStore(jsonlProvider, checkpointProvider = null)
-    logger.info { "Session store initialized (JSONL-only, Postgres checkpoints not configured)" }
+    val sessionStore = CompositeSessionStore(
+        jsonlProvider,
+        checkpointProvider = null,
+        checkpointCleaner = checkpointProvider
+    )
+    logger.info {
+        "Session store initialized (JSONL transcripts${if (checkpointProvider != null) " + SQLite Koog checkpoints" else " only"})"
+    }
 
     // Agent engine — resolve API keys from config secrets first, then env vars
-    val modelRegistry = ModelRegistry(apiKeyResolver = { envVar ->
-        val secrets = configManager.config.value.secrets
-        when (envVar) {
-            "ANTHROPIC_API_KEY" -> secrets.anthropicApiKey ?: System.getenv(envVar)
-            "OPENAI_API_KEY" -> secrets.openaiApiKey ?: System.getenv(envVar)
-            else -> System.getenv(envVar)
-        }
-    })
+    val modelRegistry = ModelRegistry(
+        apiKeyResolver = { envVar ->
+            val secrets = configManager.config.value.secrets
+            when (envVar) {
+                "ANTHROPIC_API_KEY" -> secrets.anthropicApiKey ?: System.getenv(envVar)
+                "OPENAI_API_KEY" -> secrets.openaiApiKey ?: System.getenv(envVar)
+                else -> System.getenv(envVar)
+            }
+        },
+        providersConfig = config.providers
+    )
     // ProviderFactory self-heals: compares cached key vs current on each getExecutor().
     // No explicit config-flow watcher needed here. AgentEngine wires one when used.
 
@@ -108,12 +133,12 @@ fun main() {
     }
     logger.info { "Compaction trigger: ${if (compactionTrigger != null) "enabled" else "disabled (session store not compactable)"}" }
 
-    val agentRuntime = AgentRuntime(modelRegistry, sessionStore, compactionTrigger)
+    val agentRuntime = AgentRuntime(modelRegistry, sessionStore, compactionTrigger, checkpointProvider)
     val runManager = RunManager(agentRuntime, appScope)
     val agentResolver = AgentResolver()
 
     // Workspace bootstrap — seed templates on first run
-    val workspacePath = Path.of(config.agents.defaults.workspace.replace("~", System.getProperty("user.home")))
+    val workspacePath = resolveConfiguredPath(config.agents.defaults.workspace)
     val workspaceBootstrap = WorkspaceBootstrap(workspacePath)
     val workspaceState = workspaceBootstrap.ensureWorkspace()
     logger.info { "Workspace state: ${workspaceState.phase}" }
@@ -356,4 +381,15 @@ memory {
 cron {
     # enabled = true
 }
+
+persistence {
+    # enabled = true
+
+    sqlite {
+        # path = "~/.openclawk/checkpoints.sqlite"
+    }
+}
 """.trimIndent()
+
+private fun resolveConfiguredPath(configuredPath: String): Path =
+    Path.of(configuredPath.replace("~", System.getProperty("user.home")))

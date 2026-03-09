@@ -215,6 +215,25 @@ class ConfigWriterTest {
             parsed.tools.sandbox.enabled shouldBe true
             parsed.tools.sandbox.allow shouldBe listOf("/tmp")
         }
+
+        @Test
+        fun `writes persistence sqlite section round-trip`() {
+            val config = GatewayConfig(
+                persistence = PersistenceConfig(
+                    enabled = true,
+                    sqlite = SqlitePersistenceConfig(path = "/tmp/checkpoints.sqlite")
+                )
+            )
+            writer().write(config)
+            val content = configPath().readText()
+            content shouldContain "persistence {"
+            content shouldContain "sqlite {"
+            content shouldContain "path = \"/tmp/checkpoints.sqlite\""
+
+            val parsed = ConfigFactory.parseFile(configPath().toFile()).toGatewayConfig()
+            parsed.persistence.enabled shouldBe true
+            parsed.persistence.sqlite.path shouldBe "/tmp/checkpoints.sqlite"
+        }
     }
 
     @Nested

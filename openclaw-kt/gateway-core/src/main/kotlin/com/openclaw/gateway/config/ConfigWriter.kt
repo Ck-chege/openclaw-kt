@@ -158,6 +158,24 @@ class ConfigWriter(private val configPath: Path) {
             appendLine("}")
             appendLine()
         }
+
+        // Persistence section
+        val persistence = config.persistence
+        if (persistence != defaults.persistence) {
+            appendLine("persistence {")
+            if (persistence.enabled != defaults.persistence.enabled) {
+                appendLine("    enabled = ${persistence.enabled}")
+            }
+            if (persistence.sqlite != defaults.persistence.sqlite) {
+                appendLine("    sqlite {")
+                if (persistence.sqlite.path != defaults.persistence.sqlite.path) {
+                    appendLine("        path = ${quote(persistence.sqlite.path)}")
+                }
+                appendLine("    }")
+            }
+            appendLine("}")
+            appendLine()
+        }
     }
 
     private fun quote(value: String): String =

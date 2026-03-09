@@ -33,6 +33,8 @@ fun Config.toGatewayConfig(): GatewayConfig = GatewayConfig(
     tools = if (hasPath("tools")) getConfig("tools").toToolsConfig() else ToolsConfig(),
     memory = if (hasPath("memory")) getConfig("memory").toMemoryConfig() else MemoryConfig(),
     cron = if (hasPath("cron")) getConfig("cron").toCronConfig() else CronConfig(),
+    persistence = if (hasPath("persistence")) getConfig("persistence").toPersistenceConfig() else PersistenceConfig(),
+    providers = if (hasPath("providers")) getConfig("providers").toProvidersConfig() else ProvidersConfig(),
     secrets = if (hasPath("secrets")) getConfig("secrets").toSecretsConfig() else SecretsConfig()
 )
 
@@ -132,6 +134,40 @@ fun Config.toMemoryConfig(): MemoryConfig = MemoryConfig(
 
 fun Config.toCronConfig(): CronConfig = CronConfig(
     enabled = getOrDefault("enabled", CronConfig().enabled) { getBoolean(it) }
+)
+
+fun Config.toPersistenceConfig(): PersistenceConfig = PersistenceConfig(
+    enabled = getOrDefault("enabled", PersistenceConfig().enabled) { getBoolean(it) },
+    sqlite = if (hasPath("sqlite")) getConfig("sqlite").toSqlitePersistenceConfig() else SqlitePersistenceConfig()
+)
+
+fun Config.toSqlitePersistenceConfig(): SqlitePersistenceConfig = SqlitePersistenceConfig(
+    path = getOrDefault("path", SqlitePersistenceConfig().path) { getString(it) }
+)
+
+fun Config.toProvidersConfig(): ProvidersConfig = ProvidersConfig(
+    ollama = if (hasPath("ollama")) getConfig("ollama").toOllamaConfig() else OllamaConfig(),
+    vllm = if (hasPath("vllm")) getConfig("vllm").toVllmConfig() else VllmConfig(),
+    litellm = if (hasPath("litellm")) getConfig("litellm").toLitellmConfig() else LitellmConfig(),
+    azure = if (hasPath("azure")) getConfig("azure").toAzureConfig() else AzureConfig()
+)
+
+fun Config.toOllamaConfig(): OllamaConfig = OllamaConfig(
+    baseUrl = getOrDefault("baseUrl", OllamaConfig().baseUrl) { getString(it) }
+)
+
+fun Config.toVllmConfig(): VllmConfig = VllmConfig(
+    baseUrl = getOrDefault("baseUrl", VllmConfig().baseUrl) { getString(it) }
+)
+
+fun Config.toLitellmConfig(): LitellmConfig = LitellmConfig(
+    baseUrl = getOrDefault("baseUrl", LitellmConfig().baseUrl) { getString(it) }
+)
+
+fun Config.toAzureConfig(): AzureConfig = AzureConfig(
+    endpoint = getOrDefault("endpoint", AzureConfig().endpoint) { getString(it) },
+    deployment = getOrDefault("deployment", AzureConfig().deployment) { getString(it) },
+    apiVersion = getOrDefault("apiVersion", AzureConfig().apiVersion) { getString(it) }
 )
 
 fun Config.toSecretsConfig(): SecretsConfig = SecretsConfig(

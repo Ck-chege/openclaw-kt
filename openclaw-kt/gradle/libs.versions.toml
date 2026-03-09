@@ -6,6 +6,7 @@ kotlinx-coroutines = "1.10.1"
 kotlinx-datetime = "0.6.2"
 exposed = "0.58.0"
 postgresql = "42.7.5"
+sqlite-jdbc = "3.51.0.0"
 logback = "1.5.16"
 kotlin-logging = "7.0.4"
 kotest = "5.9.1"
@@ -56,6 +57,7 @@ exposed-jdbc = { module = "org.jetbrains.exposed:exposed-jdbc", version.ref = "e
 exposed-json = { module = "org.jetbrains.exposed:exposed-json", version.ref = "exposed" }
 exposed-kotlin-datetime = { module = "org.jetbrains.exposed:exposed-kotlin-datetime", version.ref = "exposed" }
 postgresql = { module = "org.postgresql:postgresql", version.ref = "postgresql" }
+sqlite-jdbc = { module = "org.xerial:sqlite-jdbc", version.ref = "sqlite-jdbc" }
 
 # Logging
 kotlin-logging = { module = "io.github.oshai:kotlin-logging-jvm", version.ref = "kotlin-logging" }
@@ -84,6 +86,7 @@ koog-executor-openrouter = { module = "ai.koog:prompt-executor-openrouter-client
 koog-executor-deepseek = { module = "ai.koog:prompt-executor-deepseek-client", version.ref = "koog" }
 koog-executor-llms-all = { module = "ai.koog:prompt-executor-llms-all", version.ref = "koog" }
 koog-features-event-handler = { module = "ai.koog:agents-features-event-handler", version.ref = "koog" }
+koog-features-snapshot = { module = "ai.koog:agents-features-snapshot", version.ref = "koog" }
 koog-features-trace = { module = "ai.koog:agents-features-trace", version.ref = "koog" }
 
 # Channels
@@ -107,7 +110,7 @@ ktor-client = ["ktor-client-core", "ktor-client-cio", "ktor-client-content-negot
 exposed = ["exposed-core", "exposed-jdbc", "exposed-json", "exposed-kotlin-datetime"]
 kotest = ["kotest-runner-junit5", "kotest-assertions-core"]
 logging = ["kotlin-logging", "logback-classic"]
-koog = ["koog-agents", "koog-agents-ext", "koog-agents-tools", "koog-features-event-handler"]
+koog = ["koog-agents", "koog-agents-ext", "koog-agents-tools", "koog-features-event-handler", "koog-features-snapshot"]
 koog-executors = [
     "koog-executor-anthropic", "koog-executor-openai", "koog-executor-google",
     "koog-executor-ollama", "koog-executor-mistral", "koog-executor-openrouter",

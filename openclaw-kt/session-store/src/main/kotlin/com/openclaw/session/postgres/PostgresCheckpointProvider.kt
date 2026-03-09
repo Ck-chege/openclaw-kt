@@ -1,6 +1,7 @@
 package com.openclaw.session.postgres
 
 import com.openclaw.protocol.identifiers.SessionKey
+import com.openclaw.session.SessionCheckpointCleaner
 import kotlinx.datetime.Clock
 import org.jetbrains.exposed.sql.*
 import org.jetbrains.exposed.sql.SqlExpressionBuilder.eq
@@ -25,7 +26,7 @@ data class GraphCheckpoint(
  *
  * @param db Optional [Database] instance for testing. When null, uses the default connection.
  */
-open class PostgresCheckpointProvider(private val db: Database? = null) {
+open class PostgresCheckpointProvider(private val db: Database? = null) : SessionCheckpointCleaner {
 
     /**
      * Upsert a checkpoint for the given session.
@@ -62,5 +63,9 @@ open class PostgresCheckpointProvider(private val db: Database? = null) {
      */
     open suspend fun deleteCheckpoints(key: SessionKey): Unit = newSuspendedTransaction(db = db) {
         CheckpointTable.deleteWhere { sessionKey eq key.raw }
+    }
+
+    override suspend fun deleteCheckpoints(agentId: String) {
+        deleteCheckpoints(SessionKey(agentId))
     }
 }

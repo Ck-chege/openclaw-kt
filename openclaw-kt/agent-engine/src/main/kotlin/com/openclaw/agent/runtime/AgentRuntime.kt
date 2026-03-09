@@ -2,8 +2,12 @@ package com.openclaw.agent.runtime
 
 import ai.koog.agents.core.agent.AIAgent
 import ai.koog.agents.core.agent.config.AIAgentConfig
+import ai.koog.agents.core.agent.context.RollbackStrategy
 import ai.koog.agents.core.tools.ToolRegistry
 import ai.koog.agents.features.eventHandler.feature.handleEvents
+import ai.koog.agents.snapshot.feature.Persistence
+import ai.koog.agents.snapshot.providers.PersistenceStorageProvider
+import ai.koog.agents.snapshot.providers.filters.AgentCheckpointPredicateFilter
 import ai.koog.prompt.dsl.prompt
 import ai.koog.prompt.streaming.StreamFrame
 import com.openclaw.agent.model.ModelRegistry
@@ -43,7 +47,8 @@ private val logger = KotlinLogging.logger {}
 class AgentRuntime(
     private val modelRegistry: ModelRegistry,
     private val sessionStore: SessionStore? = null,
-    private val compactionTrigger: CompactionTrigger? = null
+    private val compactionTrigger: CompactionTrigger? = null,
+    private val persistenceStorageProvider: PersistenceStorageProvider<AgentCheckpointPredicateFilter>? = null
 ) {
     /**
      * Audit A-6: Koog's `agent.run()` API currently does not expose provider-reported
@@ -133,7 +138,7 @@ class AgentRuntime(
             // 5. Build strategy and agent config with conversation history
             val strategy = buildOpenClawStrategy()
             val agentConfig = AIAgentConfig(
-                prompt = prompt("openclaw-${sessionKey.raw}") {
+                prompt = prompt("openclawk-${sessionKey.raw}") {
                     system(systemPrompt)
                     // Seed prior conversation turns so the LLM has context
                     for (msg in history) {
@@ -157,8 +162,16 @@ class AgentRuntime(
                 promptExecutor = executor,
                 agentConfig = agentConfig,
                 strategy = strategy,
-                toolRegistry = toolRegistry
+                toolRegistry = toolRegistry,
+                id = sessionKey.raw
             ) {
+                persistenceStorageProvider?.let { storageProvider ->
+                    install(Persistence) {
+                        storage = storageProvider
+                        enableAutomaticPersistence = true
+                        rollbackStrategy = RollbackStrategy.Default
+                    }
+                }
                 handleEvents {
                     onLLMStreamingFrameReceived { ctx ->
                         when (val frame = ctx.streamFrame) {

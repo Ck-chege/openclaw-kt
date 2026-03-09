@@ -4,6 +4,7 @@ import ai.koog.prompt.executor.clients.anthropic.AnthropicModels
 import ai.koog.prompt.executor.clients.openai.OpenAIModels
 import ai.koog.prompt.executor.model.PromptExecutor
 import ai.koog.prompt.llm.LLModel
+import com.openclaw.gateway.config.ProvidersConfig
 import com.openclaw.protocol.identifiers.ModelId
 import io.github.oshai.kotlinlogging.KotlinLogging
 import java.util.concurrent.ConcurrentHashMap
@@ -12,9 +13,14 @@ private val logger = KotlinLogging.logger {}
 
 class ModelRegistry(
     apiKeyResolver: (String) -> String? = { System.getenv(it) },
+    providersConfig: ProvidersConfig = ProvidersConfig(),
     claudeCliCredentialReader: () -> ClaudeCliCredential? = { readClaudeCliCredentials() }
 ) {
-    private val providerFactory = ProviderFactory(apiKeyResolver, claudeCliCredentialReader)
+    private val providerFactory = ProviderFactory(
+        apiKeyResolver = apiKeyResolver,
+        providersConfig = providersConfig,
+        claudeCliCredentialReader = claudeCliCredentialReader
+    )
     private val catalog = ConcurrentHashMap<String, ModelDefinition>()
 
     init {

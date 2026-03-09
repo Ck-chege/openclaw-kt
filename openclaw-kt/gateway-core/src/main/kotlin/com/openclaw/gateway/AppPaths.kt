@@ -28,6 +28,9 @@ object AppPaths {
     /** Session store: ~/.openclawk/sessions/ */
     val sessions: Path get() = base.resolve("sessions")
 
+    /** Koog checkpoint store: ~/.openclawk/checkpoints.sqlite */
+    val checkpoints: Path get() = base.resolve("checkpoints.sqlite")
+
     /** Global user skills: ~/.openclawk/skills/ */
     val skills: Path get() = base.resolve("skills")
 

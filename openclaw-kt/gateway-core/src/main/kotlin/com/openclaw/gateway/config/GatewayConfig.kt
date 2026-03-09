@@ -9,6 +9,7 @@ data class GatewayConfig(
     val tools: ToolsConfig = ToolsConfig(),
     val memory: MemoryConfig = MemoryConfig(),
     val cron: CronConfig = CronConfig(),
+    val persistence: PersistenceConfig = PersistenceConfig(),
     val providers: ProvidersConfig = ProvidersConfig(),
     val secrets: SecretsConfig = SecretsConfig()
 )
@@ -134,6 +135,17 @@ data class MemoryConfig(
 @Serializable
 data class CronConfig(
     val enabled: Boolean = true
+)
+
+@Serializable
+data class PersistenceConfig(
+    val enabled: Boolean = true,
+    val sqlite: SqlitePersistenceConfig = SqlitePersistenceConfig()
+)
+
+@Serializable
+data class SqlitePersistenceConfig(
+    val path: String = "~/.openclawk/checkpoints.sqlite"
 )
 
 /**

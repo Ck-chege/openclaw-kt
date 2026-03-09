@@ -56,6 +56,12 @@ class HoconMapperTest {
             cron {
                 enabled = false
             }
+            persistence {
+                enabled = true
+                sqlite {
+                    path = "/tmp/checkpoints.sqlite"
+                }
+            }
         """.trimIndent()
 
         val config = ConfigFactory.parseString(hocon)
@@ -87,6 +93,8 @@ class HoconMapperTest {
         result.memory.model shouldBe "nomic-embed"
 
         result.cron.enabled shouldBe false
+        result.persistence.enabled shouldBe true
+        result.persistence.sqlite.path shouldBe "/tmp/checkpoints.sqlite"
     }
 
     @Test

@@ -1,6 +1,7 @@
 package com.openclaw.session.composite
 
 import com.openclaw.protocol.identifiers.SessionKey
+import com.openclaw.session.SessionCheckpointCleaner
 import com.openclaw.session.SessionMessage
 import com.openclaw.session.SessionMeta
 import com.openclaw.session.compaction.CompactableSessionStore
@@ -22,7 +23,8 @@ private val logger = KotlinLogging.logger {}
  */
 class CompositeSessionStore(
     private val jsonlStore: CompactableSessionStore,
-    private val checkpointProvider: PostgresCheckpointProvider? = null
+    private val checkpointProvider: PostgresCheckpointProvider? = null,
+    private val checkpointCleaner: SessionCheckpointCleaner? = checkpointProvider
 ) : CompactableSessionStore {
 
     @Volatile
@@ -53,12 +55,12 @@ class CompositeSessionStore(
 
     override suspend fun deleteSession(key: SessionKey) {
         jsonlStore.deleteSession(key)
-        tryPostgres { checkpointProvider?.deleteCheckpoints(key) }
+        tryCheckpointCleanup { checkpointCleaner?.deleteCheckpoints(key.raw) }
     }
 
     override suspend fun resetSession(key: SessionKey) {
         jsonlStore.resetSession(key)
-        tryPostgres { checkpointProvider?.deleteCheckpoints(key) }
+        tryCheckpointCleanup { checkpointCleaner?.deleteCheckpoints(key.raw) }
     }
 
     override suspend fun updateMeta(key: SessionKey, updater: (SessionMeta) -> SessionMeta) {
@@ -128,6 +130,17 @@ class CompositeSessionStore(
                 logger.warn(e) { "Postgres unavailable — degrading to JSONL-only mode" }
             }
             null
+        }
+    }
+
+    private suspend fun tryCheckpointCleanup(block: suspend () -> Unit) {
+        try {
+            block()
+        } catch (e: Exception) {
+            if (!isDegraded) {
+                isDegraded = true
+                logger.warn(e) { "Checkpoint cleanup unavailable — resumable state may remain until storage recovers" }
+            }
         }
     }
 }

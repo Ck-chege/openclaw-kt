@@ -12,6 +12,8 @@ dependencies {
 
     implementation(libs.bundles.exposed)
     implementation(libs.postgresql)
+    implementation(libs.sqlite.jdbc)
+    implementation(libs.koog.features.snapshot)
 
     implementation(libs.bundles.logging)
 
