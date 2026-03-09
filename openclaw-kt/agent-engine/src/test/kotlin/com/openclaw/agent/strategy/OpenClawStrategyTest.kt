@@ -15,14 +15,14 @@ class OpenClawStrategyTest {
         }
 
         @Test
-        fun `strategy builds with custom compaction threshold`() {
-            val strategy = buildOpenClawStrategy(compactionThreshold = 50)
+        fun `strategy can be constructed repeatedly`() {
+            val strategy = buildOpenClawStrategy()
             // If we get here, the strategy DSL compiled and executed successfully
         }
 
         @Test
-        fun `strategy builds with high compaction threshold`() {
-            val strategy = buildOpenClawStrategy(compactionThreshold = 500)
+        fun `strategy builds independently per invocation`() {
+            val strategy = buildOpenClawStrategy()
             // If we get here, the strategy DSL compiled and executed successfully
         }
     }

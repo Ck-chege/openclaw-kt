@@ -20,12 +20,13 @@ import java.nio.file.Files
 class JsonlSessionProviderTest : FunSpec({
 
     lateinit var provider: JsonlSessionProvider
+    lateinit var tmpDir: java.nio.file.Path
 
     val testKey = SessionKey("test-agent:main:*:main")
     val now = Clock.System.now()
 
     beforeEach {
-        val tmpDir = Files.createTempDirectory("jsonl-test-")
+        tmpDir = Files.createTempDirectory("jsonl-test-")
         provider = JsonlSessionProvider(tmpDir)
     }
 
@@ -172,6 +173,149 @@ class JsonlSessionProviderTest : FunSpec({
         meta.compactionCount shouldBe 0
         // Session entry still exists
         meta.key shouldBe testKey
+    }
+
+    test("replaceWithCompaction archives old transcript and rotates active file") {
+        val metaBefore = provider.createSession(testKey, agentId = "test-agent")
+        repeat(4) { i ->
+            provider.appendMessage(testKey, SessionMessage.UserMessage(
+                id = "u$i", timestamp = now,
+                senderId = "p", senderName = "P", text = "msg-$i"
+            ))
+        }
+
+        val summary = SessionMessage.CompactionSummary(
+            id = "cs1", timestamp = now,
+            summary = "summary", messagesCompacted = 3,
+            tokensBefore = 1000, tokensAfter = 250
+        )
+        val remaining = listOf(
+            SessionMessage.UserMessage(
+                id = "u3", timestamp = now,
+                senderId = "p", senderName = "P", text = "msg-3"
+            )
+        )
+
+        provider.replaceWithCompaction(testKey, compactedCount = 3, summary = summary, remaining = remaining)
+
+        val metaAfter = provider.getSession(testKey)!!
+        metaAfter.fileId shouldNotBe metaBefore.fileId
+        metaAfter.messageCount shouldBe 2
+        metaAfter.compactionCount shouldBe 1
+
+        val history = provider.getHistory(testKey)
+        history shouldHaveSize 2
+        history.first() shouldBe summary
+        history.last() shouldBe remaining.single()
+
+        val archives = provider.getArchiveRecords(testKey)
+        archives shouldHaveSize 1
+        archives.first().archivedFileId shouldBe metaBefore.fileId
+        archives.first().previousArchiveFileId shouldBe null
+
+        tmpDir.resolve("${metaAfter.fileId}.jsonl").toFile().exists() shouldBe true
+        java.nio.file.Path.of(archives.first().archivedPath).toFile().exists() shouldBe true
+    }
+
+    test("repeated compaction records archive lineage") {
+        provider.createSession(testKey, agentId = "test-agent")
+        repeat(8) { i ->
+            provider.appendMessage(testKey, SessionMessage.UserMessage(
+                id = "u$i", timestamp = now,
+                senderId = "p", senderName = "P", text = "x".repeat(200)
+            ))
+        }
+
+        val firstSummary = SessionMessage.CompactionSummary(
+            id = "cs1", timestamp = now,
+            summary = "summary-1", messagesCompacted = 7,
+            tokensBefore = 400, tokensAfter = 150
+        )
+        provider.replaceWithCompaction(
+            testKey,
+            compactedCount = 7,
+            summary = firstSummary,
+            remaining = listOf(
+                SessionMessage.UserMessage(
+                    id = "u7", timestamp = now,
+                    senderId = "p", senderName = "P", text = "x".repeat(200)
+                )
+            )
+        )
+
+        repeat(4) { i ->
+            provider.appendMessage(testKey, SessionMessage.UserMessage(
+                id = "v$i", timestamp = now,
+                senderId = "p", senderName = "P", text = "y".repeat(200)
+            ))
+        }
+
+        val currentMeta = provider.getSession(testKey)!!
+        val secondSummary = SessionMessage.CompactionSummary(
+            id = "cs2", timestamp = now,
+            summary = "summary-2", messagesCompacted = 4,
+            tokensBefore = 500, tokensAfter = 180
+        )
+        provider.replaceWithCompaction(
+            testKey,
+            compactedCount = 4,
+            summary = secondSummary,
+            remaining = listOf(
+                SessionMessage.UserMessage(
+                    id = "v3", timestamp = now,
+                    senderId = "p", senderName = "P", text = "y".repeat(200)
+                )
+            )
+        )
+
+        val archives = provider.getArchiveRecords(testKey)
+        archives shouldHaveSize 2
+        archives[1].archivedFileId shouldBe currentMeta.fileId
+        archives[1].previousArchiveFileId shouldBe archives[0].archivedFileId
+    }
+
+    test("resetSession removes archived transcripts and lineage") {
+        val metaBefore = provider.createSession(testKey, agentId = "test-agent")
+        provider.appendMessage(testKey, SessionMessage.UserMessage(
+            id = "u1", timestamp = now,
+            senderId = "p", senderName = "P", text = "hello"
+        ))
+
+        val summary = SessionMessage.CompactionSummary(
+            id = "cs1", timestamp = now,
+            summary = "summary", messagesCompacted = 1,
+            tokensBefore = 100, tokensAfter = 20
+        )
+        provider.replaceWithCompaction(testKey, 1, summary, emptyList())
+        val archivePath = provider.getArchiveRecords(testKey).single().archivedPath
+
+        provider.resetSession(testKey)
+
+        provider.getHistory(testKey).shouldBeEmpty()
+        provider.getArchiveRecords(testKey).shouldBeEmpty()
+        java.nio.file.Path.of(archivePath).toFile().exists() shouldBe false
+        provider.getSession(testKey)!!.fileId shouldNotBe metaBefore.fileId
+    }
+
+    test("deleteSession removes archived transcripts and lineage") {
+        provider.createSession(testKey, agentId = "test-agent")
+        provider.appendMessage(testKey, SessionMessage.UserMessage(
+            id = "u1", timestamp = now,
+            senderId = "p", senderName = "P", text = "hello"
+        ))
+
+        val summary = SessionMessage.CompactionSummary(
+            id = "cs1", timestamp = now,
+            summary = "summary", messagesCompacted = 1,
+            tokensBefore = 100, tokensAfter = 20
+        )
+        provider.replaceWithCompaction(testKey, 1, summary, emptyList())
+        val archivePath = provider.getArchiveRecords(testKey).single().archivedPath
+
+        provider.deleteSession(testKey)
+
+        provider.getArchiveRecords(testKey).shouldBeEmpty()
+        java.nio.file.Path.of(archivePath).toFile().exists() shouldBe false
     }
 
     test("updateMeta applies updater atomically") {

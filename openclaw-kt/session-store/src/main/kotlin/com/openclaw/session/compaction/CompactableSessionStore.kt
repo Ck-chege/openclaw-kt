@@ -5,13 +5,15 @@ import com.openclaw.session.SessionMessage
 import com.openclaw.session.SessionStore
 
 /**
- * A [SessionStore] that supports atomic compaction: replacing the oldest messages
- * with a [SessionMessage.CompactionSummary] in a single atomic operation.
+ * A [SessionStore] that supports compaction by archiving the previous transcript
+ * and promoting a new active transcript containing a [SessionMessage.CompactionSummary]
+ * plus the remaining recent messages.
  */
 interface CompactableSessionStore : SessionStore {
 
     /**
-     * Atomically replace the transcript with [summary] + [remaining] messages.
+     * Archive the current active transcript and replace it with a new active
+     * transcript containing [summary] + [remaining] messages.
      *
      * @param key Session to compact
      * @param compactedCount Number of old messages being replaced

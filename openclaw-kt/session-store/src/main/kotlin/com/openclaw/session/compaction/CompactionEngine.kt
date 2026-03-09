@@ -24,7 +24,8 @@ sealed class CompactionOutcome {
 
 /**
  * Orchestrates session compaction: evaluates whether compaction is needed,
- * delegates summarization, and performs the atomic transcript rewrite.
+ * delegates summarization, and rotates the transcript into an archived predecessor
+ * plus a new active transcript.
  */
 class CompactionEngine(
     private val store: CompactableSessionStore,
@@ -55,7 +56,7 @@ class CompactionEngine(
      * 3. Check minimum message count — skip if too few
      * 4. Select oldest messages to compact
      * 5. Summarize via [MessageSummarizer]
-     * 6. Atomic rewrite via [CompactableSessionStore.replaceWithCompaction]
+     * 6. Archive + rotate active transcript via [CompactableSessionStore.replaceWithCompaction]
      */
     suspend fun compact(key: SessionKey): CompactionOutcome {
         val messages = store.getHistory(key)
@@ -73,9 +74,10 @@ class CompactionEngine(
             )
         }
 
-        // Determine how many recent messages to keep. Budget: half of the trigger threshold,
-        // so the post-compaction state (summary + remaining) is well under the limit.
-        val keepTokenBudget = config.triggerThreshold / 2
+        // Determine how many recent messages to keep. Budget: a quarter of the trigger
+        // threshold, so the new active transcript stays compact and archival history holds
+        // the removed prefix.
+        val keepTokenBudget = config.triggerThreshold / 4
         var remainingTokens = 0
         var keepFromIndex = messages.size
         for (i in messages.indices.reversed()) {
@@ -100,7 +102,9 @@ class CompactionEngine(
 
         val remaining = messages.subList(keepFromIndex, messages.size)
 
-        // Summarize
+        // Summarize the whole old prefix, including prior compaction summaries.
+        // Until history reconstruction can traverse archived transcripts, the summary
+        // message itself remains part of the durable context carried forward.
         val result = try {
             summarizer.summarize(oldMessages)
         } catch (e: Exception) {

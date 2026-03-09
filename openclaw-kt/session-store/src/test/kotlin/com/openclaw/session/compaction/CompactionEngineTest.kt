@@ -213,5 +213,32 @@ class CompactionEngineTest : FunSpec({
             val history = provider.getHistory(testKey)
             history.first().shouldBeInstanceOf<SessionMessage.CompactionSummary>()
         }
+
+        test("re-compaction includes prior summaries in summarizer input") {
+            val summarizedTypes = mutableListOf<List<SessionMessage>>()
+            val trackingSummarizer = MessageSummarizer { messages ->
+                summarizedTypes += messages
+                CompactionResult("Summary of ${messages.size} messages", 500)
+            }
+            val (provider, engine, _) = setup(
+                maxContextTokens = 1000,
+                triggerRatio = 0.20,
+                summarizer = trackingSummarizer
+            )
+            provider.createSession(testKey, agentId = "test-agent")
+
+            repeat(8) { i ->
+                provider.appendMessage(testKey, userMessage("u$i", "x".repeat(200)))
+            }
+            engine.compact(testKey).shouldBeInstanceOf<CompactionOutcome.Success>()
+
+            repeat(8) { i ->
+                provider.appendMessage(testKey, userMessage("v$i", "y".repeat(200)))
+            }
+            engine.compact(testKey).shouldBeInstanceOf<CompactionOutcome.Success>()
+
+            summarizedTypes.size shouldBe 2
+            summarizedTypes.last().any { it is SessionMessage.CompactionSummary } shouldBe true
+        }
     }
 })

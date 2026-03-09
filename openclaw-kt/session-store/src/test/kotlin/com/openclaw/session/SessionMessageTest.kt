@@ -121,6 +121,22 @@ class SessionMessageTest : FunSpec({
         decoded shouldBe msg
     }
 
+    test("SessionArchiveRecord round-trip serialization") {
+        val record = SessionArchiveRecord(
+            sessionKey = com.openclaw.protocol.identifiers.SessionKey("main:main:*:main"),
+            archivedFileId = "archive-1",
+            archivedPath = "/tmp/archive-1.compacted.2026-03-09T14-59-48.909Z.jsonl",
+            previousArchiveFileId = "archive-0",
+            compactedAt = now,
+            messagesCompacted = 12,
+            tokensBefore = 4000,
+            tokensAfter = 500
+        )
+        val encoded = json.encodeToString(record)
+        val decoded = json.decodeFromString<SessionArchiveRecord>(encoded)
+        decoded shouldBe record
+    }
+
     test("type discriminator is present in JSON output") {
         val msg: SessionMessage = SessionMessage.UserMessage(
             id = "u2",

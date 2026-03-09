@@ -21,7 +21,9 @@ import kotlin.io.path.*
  * ```
  * sessionsDir/
  *   sessions.json          <- index: Map<rawKey, SessionMeta>
- *   <fileId>.jsonl          <- one file per session, one JSON line per message
+ *   session_archives.json  <- archive lineage: Map<rawKey, List<SessionArchiveRecord>>
+ *   <fileId>.jsonl         <- active transcript, one JSON line per message
+ *   <fileId>.compacted.*   <- archived transcript snapshots created by compaction
  * ```
  *
  * Concurrent access to the same session is serialized via [SessionWriteLock].
@@ -46,6 +48,7 @@ class JsonlSessionProvider(private val sessionsDir: Path) : CompactableSessionSt
     private val indexMutex = Mutex()
 
     private val indexFile: Path get() = sessionsDir / "sessions.json"
+    private val archivesFile: Path get() = sessionsDir / "session_archives.json"
 
     /** In-memory cache of session metadata, avoiding index file I/O on every read. */
     private val metaCache = ConcurrentHashMap<String, SessionMeta>()
@@ -81,6 +84,18 @@ class JsonlSessionProvider(private val sessionsDir: Path) : CompactableSessionSt
         indexFile.writeText(json.encodeToString(index))
     }
 
+    private fun loadArchivesIndex(): MutableMap<String, MutableList<SessionArchiveRecord>> {
+        if (!archivesFile.exists()) return mutableMapOf()
+        val text = archivesFile.readText()
+        if (text.isBlank()) return mutableMapOf()
+        return json.decodeFromString<Map<String, List<SessionArchiveRecord>>>(text)
+            .mapValuesTo(mutableMapOf()) { (_, records) -> records.toMutableList() }
+    }
+
+    private fun saveArchivesIndex(index: Map<String, List<SessionArchiveRecord>>) {
+        archivesFile.writeText(json.encodeToString(index))
+    }
+
     /**
      * Load the index, apply [block], save, and return the result.
      * Holds [indexMutex] for the entire load→mutate→save cycle to prevent
@@ -98,9 +113,33 @@ class JsonlSessionProvider(private val sessionsDir: Path) : CompactableSessionSt
             result
         }
 
+    private suspend fun <T> withMetadataWrite(
+        block: (MutableMap<String, SessionMeta>, MutableMap<String, MutableList<SessionArchiveRecord>>) -> T
+    ): T = indexMutex.withLock {
+        ensureCacheLoaded()
+        val index = HashMap(metaCache)
+        val archives = loadArchivesIndex()
+        val result = block(index, archives)
+        saveIndex(index)
+        saveArchivesIndex(archives)
+        metaCache.clear()
+        metaCache.putAll(index)
+        result
+    }
+
     // ---- Helpers ----
 
     private fun transcriptPath(fileId: String): Path = sessionsDir / "$fileId.jsonl"
+
+    private fun archivedTranscriptPath(fileId: String, timestamp: kotlinx.datetime.Instant): Path {
+        val safeTimestamp = timestamp.toString().replace(":", "-")
+        return sessionsDir / "$fileId.compacted.$safeTimestamp.jsonl"
+    }
+
+    suspend fun getArchiveRecords(key: SessionKey): List<SessionArchiveRecord> =
+        indexMutex.withLock {
+            loadArchivesIndex()[key.raw]?.toList().orEmpty()
+        }
 
     // ---- SessionStore implementation ----
 
@@ -181,11 +220,14 @@ class JsonlSessionProvider(private val sessionsDir: Path) : CompactableSessionSt
         try {
             writeLock.withLock(key) {
                 var fileId: String? = null
-                withIndexWrite { index ->
+                var archivedPaths: List<String> = emptyList()
+                withMetadataWrite { index, archives ->
                     val meta = index.remove(key.raw) ?: error("Session not found: ${key.raw}")
                     fileId = meta.fileId
+                    archivedPaths = archives.remove(key.raw).orEmpty().map { it.archivedPath }
                 }
                 fileId?.let { transcriptPath(it).deleteIfExists() }
+                archivedPaths.forEach { java.nio.file.Path.of(it).deleteIfExists() }
                 Unit
             }
         } finally {
@@ -195,9 +237,11 @@ class JsonlSessionProvider(private val sessionsDir: Path) : CompactableSessionSt
     override suspend fun resetSession(key: SessionKey): Unit =
         try {
             writeLock.withLock(key) {
-                withIndexWrite { index ->
+                var archivedPaths: List<String> = emptyList()
+                withMetadataWrite { index, archives ->
                     val meta = index[key.raw] ?: error("Session not found: ${key.raw}")
                     transcriptPath(meta.fileId).writeText("")
+                    archivedPaths = archives.remove(key.raw).orEmpty().map { it.archivedPath }
                     index[key.raw] = meta.copy(
                         lastMessageAt = null,
                         messageCount = 0,
@@ -205,6 +249,7 @@ class JsonlSessionProvider(private val sessionsDir: Path) : CompactableSessionSt
                         totalTokens = 0
                     )
                 }
+                archivedPaths.forEach { java.nio.file.Path.of(it).deleteIfExists() }
             }
         } finally {
             writeLock.cleanup(key)
@@ -227,7 +272,7 @@ class JsonlSessionProvider(private val sessionsDir: Path) : CompactableSessionSt
         ensureCacheLoaded()
         val meta = metaCache[key.raw] ?: error("Session not found: ${key.raw}")
 
-        // Build new transcript: summary + remaining messages
+        // Build new active transcript: summary + remaining messages
         val newLines = buildString {
             appendLine(json.encodeToString(SessionMessage.serializer(), summary))
             remaining.forEach { msg ->
@@ -235,17 +280,36 @@ class JsonlSessionProvider(private val sessionsDir: Path) : CompactableSessionSt
             }
         }
 
-        // Atomic file replace: write to .tmp, then move
-        val target = transcriptPath(meta.fileId)
-        val tmp = sessionsDir / "${meta.fileId}.tmp"
+        val oldActivePath = transcriptPath(meta.fileId)
+        val archivedPath = archivedTranscriptPath(meta.fileId, summary.timestamp)
+        val newFileId = UUID.randomUUID().toString()
+        val newActivePath = transcriptPath(newFileId)
+        val tmp = sessionsDir / "$newFileId.tmp"
         tmp.writeText(newLines)
-        java.nio.file.Files.move(tmp, target, StandardCopyOption.ATOMIC_MOVE)
 
-        // Update metadata under index lock
-        val newMessageCount = 1 + remaining.size  // summary + remaining
-        withIndexWrite { index ->
-            val current = index[key.raw] ?: return@withIndexWrite
+        if (oldActivePath.exists()) {
+            java.nio.file.Files.move(oldActivePath, archivedPath, StandardCopyOption.ATOMIC_MOVE)
+        }
+        java.nio.file.Files.move(tmp, newActivePath, StandardCopyOption.ATOMIC_MOVE)
+
+        // Update metadata and archive lineage under index lock
+        val newMessageCount = 1 + remaining.size
+        withMetadataWrite { index, archives ->
+            val current = index[key.raw] ?: return@withMetadataWrite
+            val previousArchiveFileId = archives[key.raw]?.lastOrNull()?.archivedFileId
+            val archiveRecord = SessionArchiveRecord(
+                sessionKey = key,
+                archivedFileId = meta.fileId,
+                archivedPath = archivedPath.toString(),
+                previousArchiveFileId = previousArchiveFileId,
+                compactedAt = summary.timestamp,
+                messagesCompacted = compactedCount,
+                tokensBefore = summary.tokensBefore,
+                tokensAfter = summary.tokensAfter
+            )
+            archives.getOrPut(key.raw) { mutableListOf() }.add(archiveRecord)
             index[key.raw] = current.copy(
+                fileId = newFileId,
                 messageCount = newMessageCount,
                 compactionCount = current.compactionCount + 1
             )
