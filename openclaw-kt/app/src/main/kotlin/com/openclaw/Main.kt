@@ -72,7 +72,9 @@ fun main() {
         val sqlitePath = resolveConfiguredPath(config.persistence.sqlite.path)
         try {
             SqliteKoogPersistenceProvider.connect(sqlitePath).also {
-                logger.info { "Koog persistence initialized (SQLite: $sqlitePath)" }
+                logger.info {
+                    "Koog persistence initialized (SQLite: $sqlitePath, recovery mode: message-history-only)"
+                }
             }
         } catch (e: Exception) {
             logger.warn(e) { "Koog persistence initialization failed, continuing without resumable checkpoints" }

@@ -1,11 +1,17 @@
 package com.openclaw.agent.runtime
 
+import ai.koog.agents.core.agent.context.RollbackStrategy
+import ai.koog.agents.snapshot.feature.PersistenceFeatureConfig
+import ai.koog.agents.snapshot.feature.RollbackToolRegistry
+import ai.koog.agents.snapshot.providers.PersistenceStorageProvider
+import ai.koog.agents.snapshot.providers.filters.AgentCheckpointPredicateFilter
 import com.openclaw.agent.model.ModelRegistry
 import com.openclaw.agent.tools.FakeSessionStore
 import com.openclaw.agent.workspace.WorkspaceLoader
 import com.openclaw.protocol.dto.AgentEvent
 import com.openclaw.protocol.identifiers.ModelId
 import com.openclaw.protocol.identifiers.SessionKey
+import ai.koog.agents.snapshot.feature.AgentCheckpointData
 import com.openclaw.session.SessionMessage
 import io.kotest.matchers.collections.shouldHaveSize
 import io.kotest.matchers.shouldBe
@@ -28,6 +34,39 @@ class AgentRuntimeTest {
     private fun runtimeWithMissingKey(sessionStore: FakeSessionStore? = null): AgentRuntime {
         val registry = ModelRegistry { null }
         return AgentRuntime(registry, sessionStore)
+    }
+
+    private val noopPersistenceProvider = object : PersistenceStorageProvider<AgentCheckpointPredicateFilter> {
+        override suspend fun getCheckpoints(
+            agentId: String,
+            filter: AgentCheckpointPredicateFilter?
+        ): List<AgentCheckpointData> = emptyList()
+
+        override suspend fun saveCheckpoint(
+            agentId: String,
+            agentCheckpointData: AgentCheckpointData
+        ) = Unit
+
+        override suspend fun getLatestCheckpoint(
+            agentId: String,
+            filter: AgentCheckpointPredicateFilter?
+        ): AgentCheckpointData? = null
+    }
+
+    @Nested
+    inner class PersistenceConfiguration {
+
+        @Test
+        fun `chat persistence uses message history rollback mode`() {
+            val config = PersistenceFeatureConfig()
+
+            config.applyChatPersistenceMode(noopPersistenceProvider)
+
+            config.storage shouldBe noopPersistenceProvider
+            config.enableAutomaticPersistence shouldBe true
+            config.rollbackStrategy shouldBe RollbackStrategy.MessageHistoryOnly
+            config.rollbackToolRegistry shouldBe RollbackToolRegistry.EMPTY
+        }
     }
 
     @Nested

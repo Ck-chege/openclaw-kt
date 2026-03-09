@@ -7,6 +7,8 @@ import ai.koog.agents.core.feature.model.events.LLMStreamingFrameReceivedEvent
 import ai.koog.agents.core.tools.ToolRegistry
 import ai.koog.agents.features.eventHandler.feature.handleEvents
 import ai.koog.agents.snapshot.feature.Persistence
+import ai.koog.agents.snapshot.feature.PersistenceFeatureConfig
+import ai.koog.agents.snapshot.feature.RollbackToolRegistry
 import ai.koog.agents.snapshot.providers.PersistenceStorageProvider
 import ai.koog.agents.snapshot.providers.filters.AgentCheckpointPredicateFilter
 import ai.koog.agents.features.tracing.feature.Tracing
@@ -48,6 +50,18 @@ import kotlin.io.path.createDirectories
 import kotlin.time.Duration.Companion.seconds
 
 private val logger = KotlinLogging.logger {}
+
+internal fun PersistenceFeatureConfig.applyChatPersistenceMode(
+    storageProvider: PersistenceStorageProvider<AgentCheckpointPredicateFilter>
+) {
+    storage = storageProvider
+    enableAutomaticPersistence = true
+    // This runtime exposes mutating tools (filesystem writes, exec, MCP, session sends).
+    // Use conversational recovery mode so crash recovery restores message history
+    // without resuming at an execution point that could replay side effects.
+    rollbackStrategy = RollbackStrategy.MessageHistoryOnly
+    rollbackToolRegistry = RollbackToolRegistry.EMPTY
+}
 
 /**
  * Executes agent runs by assembling prompts, creating Koog agents,
@@ -196,9 +210,7 @@ class AgentRuntime(
                 }
                 persistenceStorageProvider?.let { storageProvider ->
                     install(Persistence) {
-                        storage = storageProvider
-                        enableAutomaticPersistence = true
-                        rollbackStrategy = RollbackStrategy.Default
+                        applyChatPersistenceMode(storageProvider)
                     }
                 }
                 handleEvents {
