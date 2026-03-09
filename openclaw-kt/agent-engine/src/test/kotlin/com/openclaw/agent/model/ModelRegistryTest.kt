@@ -25,7 +25,11 @@ class ModelRegistryTest {
     private fun registryWithAllKeys(): ModelRegistry =
         registryWithKeys(
             "ANTHROPIC_API_KEY" to "test-anthropic-key",
-            "OPENAI_API_KEY" to "test-openai-key"
+            "OPENAI_API_KEY" to "test-openai-key",
+            "GEMINI_API_KEY" to "test-google-key",
+            "DEEPSEEK_API_KEY" to "test-deepseek-key",
+            "OPENROUTER_API_KEY" to "test-openrouter-key",
+            "MISTRAL_API_KEY" to "test-mistral-key"
         )
 
     @Nested
@@ -49,6 +53,46 @@ class ModelRegistryTest {
             def.modelName shouldBe "gpt-4o"
             def.displayName shouldBe "GPT-4o"
             def.maxContextTokens shouldBe 128_000
+        }
+
+        @Test
+        fun `resolve known Google model returns correct definition`() {
+            val registry = registryWithAllKeys()
+            val def = registry.resolve(ModelId("google:gemini-2.5-pro"))
+            def.provider shouldBe "google"
+            def.modelName shouldBe "gemini-2.5-pro"
+            def.displayName shouldBe "Gemini 2.5 Pro"
+            def.maxContextTokens shouldBe 1_048_576
+        }
+
+        @Test
+        fun `resolve known DeepSeek model returns correct definition`() {
+            val registry = registryWithAllKeys()
+            val def = registry.resolve(ModelId("deepseek:deepseek-chat"))
+            def.provider shouldBe "deepseek"
+            def.modelName shouldBe "deepseek-chat"
+            def.displayName shouldBe "DeepSeek Chat"
+            def.maxContextTokens shouldBe 64_000
+        }
+
+        @Test
+        fun `resolve latest Anthropic model returns correct definition`() {
+            val registry = registryWithAllKeys()
+            val def = registry.resolve(ModelId("anthropic:claude-sonnet-4-6"))
+            def.provider shouldBe "anthropic"
+            def.modelName shouldBe "claude-sonnet-4-6"
+            def.displayName shouldBe "Claude Sonnet 4.6"
+            def.maxContextTokens shouldBe 200_000
+        }
+
+        @Test
+        fun `resolve latest OpenAI model returns correct definition`() {
+            val registry = registryWithAllKeys()
+            val def = registry.resolve(ModelId("openai:gpt-5.4"))
+            def.provider shouldBe "openai"
+            def.modelName shouldBe "gpt-5.4"
+            def.displayName shouldBe "GPT-5.4"
+            def.maxContextTokens shouldBe 1_050_000
         }
 
         @Test
@@ -140,6 +184,96 @@ class ModelRegistryTest {
         }
 
         @Test
+        fun `resolveKoogModel for Google model returns LLModel`() {
+            val registry = registryWithAllKeys()
+            val def = registry.resolve(ModelId("google:gemini-2.5-pro"))
+            val llModel = registry.resolveKoogModel(def)
+            llModel.id shouldBe "gemini-2.5-pro"
+            llModel.provider.id shouldBe "google"
+        }
+
+        @Test
+        fun `resolveKoogModel for DeepSeek model returns LLModel`() {
+            val registry = registryWithAllKeys()
+            val def = registry.resolve(ModelId("deepseek:deepseek-chat"))
+            val llModel = registry.resolveKoogModel(def)
+            llModel.id shouldBe "deepseek-chat"
+            llModel.provider.id shouldBe "deepseek"
+        }
+
+        @Test
+        fun `resolveKoogModel for Mistral model returns LLModel`() {
+            val registry = registryWithAllKeys()
+            val def = registry.resolve(ModelId("mistral:mistral-medium-latest"))
+            val llModel = registry.resolveKoogModel(def)
+            llModel.id shouldBe "mistral-medium-latest"
+            llModel.provider.id shouldBe "mistralai"
+        }
+
+        @Test
+        fun `resolveKoogModel for OpenRouter model returns LLModel`() {
+            val registry = registryWithAllKeys()
+            val def = registry.resolve(ModelId("openrouter:openai/gpt-5"))
+            val llModel = registry.resolveKoogModel(def)
+            llModel.id shouldBe "openai/gpt-5"
+            llModel.provider.id shouldBe "openrouter"
+        }
+
+        @Test
+        fun `resolveKoogModel for latest Anthropic custom model returns LLModel`() {
+            val registry = registryWithAllKeys()
+            val def = registry.resolve(ModelId("anthropic:claude-sonnet-4-6"))
+            val llModel = registry.resolveKoogModel(def)
+            llModel.id shouldBe "claude-sonnet-4-6"
+            llModel.provider.id shouldBe "anthropic"
+            llModel.contextLength shouldBe 200_000L
+        }
+
+        @Test
+        fun `resolveKoogModel for latest OpenAI custom model includes OpenAI endpoint capabilities`() {
+            val registry = registryWithAllKeys()
+            val def = registry.resolve(ModelId("openai:gpt-5.4"))
+            val llModel = registry.resolveKoogModel(def)
+            llModel.id shouldBe "gpt-5.4"
+            llModel.provider.id shouldBe "openai"
+            llModel.contextLength shouldBe 1_050_000L
+            llModel.supports(ai.koog.prompt.llm.LLMCapability.OpenAIEndpoint.Completions) shouldBe true
+            llModel.supports(ai.koog.prompt.llm.LLMCapability.OpenAIEndpoint.Responses) shouldBe true
+        }
+
+        @Test
+        fun `resolveKoogModel for OpenAI compatible custom provider uses OpenAI transport model`() {
+            val registry = registryWithAllKeys()
+            val custom = ModelDefinition(
+                id = ModelId("groq:llama-3.3-70b-versatile"),
+                provider = "groq",
+                modelName = "llama-3.3-70b-versatile",
+                displayName = "Groq Llama 3.3 70B",
+                maxContextTokens = 131_072
+            )
+            val llModel = registry.resolveKoogModel(custom)
+            llModel.id shouldBe "llama-3.3-70b-versatile"
+            llModel.provider.id shouldBe "openai"
+            llModel.contextLength shouldBe 131_072L
+        }
+
+        @Test
+        fun `resolveKoogModel for Ollama custom model returns Ollama LLModel`() {
+            val registry = registryWithAllKeys()
+            val custom = ModelDefinition(
+                id = ModelId("ollama:qwen3"),
+                provider = "ollama",
+                modelName = "qwen3",
+                displayName = "Qwen3",
+                maxContextTokens = 131_072
+            )
+            val llModel = registry.resolveKoogModel(custom)
+            llModel.id shouldBe "qwen3"
+            llModel.provider.id shouldBe "ollama"
+            llModel.contextLength shouldBe 131_072L
+        }
+
+        @Test
         fun `resolveKoogModel for unknown provider throws UnknownProvider`() {
             val registry = registryWithAllKeys()
             val fakeDef = ModelDefinition(
@@ -161,9 +295,15 @@ class ModelRegistryTest {
         fun `list returns all built-in models`() {
             val registry = registryWithAllKeys()
             val models = registry.list()
-            models shouldHaveAtLeastSize 4
+            models shouldHaveAtLeastSize 28
             models.map { it.id.raw } shouldContain "anthropic:claude-sonnet-4-5"
+            models.map { it.id.raw } shouldContain "anthropic:claude-sonnet-4-6"
             models.map { it.id.raw } shouldContain "openai:gpt-4o"
+            models.map { it.id.raw } shouldContain "openai:gpt-5.4"
+            models.map { it.id.raw } shouldContain "google:gemini-2.5-pro"
+            models.map { it.id.raw } shouldContain "deepseek:deepseek-chat"
+            models.map { it.id.raw } shouldContain "mistral:mistral-medium-latest"
+            models.map { it.id.raw } shouldContain "openrouter:openai/gpt-5"
         }
 
         @Test
