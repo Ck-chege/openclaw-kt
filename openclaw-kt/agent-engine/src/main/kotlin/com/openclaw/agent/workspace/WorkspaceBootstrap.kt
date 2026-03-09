@@ -24,11 +24,10 @@ private val json = Json {
  *
  * State transitions:
  * - NEW → BOOTSTRAP_SEEDED (fresh workspace: seed all 8 templates)
- * - NEW → ONBOARDING_COMPLETE (legacy workspace: SOUL.md >50 chars)
  * - BOOTSTRAP_SEEDED → ONBOARDING_COMPLETE (BOOTSTRAP.md deleted by agent)
  * - ONBOARDING_COMPLETE → no-op
  */
-class WorkspaceBootstrap(
+class  WorkspaceBootstrap(
     private val workspacePath: Path,
     private val clock: Clock = Clock.System
 ) {
@@ -36,8 +35,6 @@ class WorkspaceBootstrap(
     private val stateFile: Path = stateDir.resolve("workspace-state.json")
 
     companion object {
-        private const val LEGACY_SOUL_THRESHOLD = 50
-
         val TEMPLATE_FILES = listOf(
             "BOOTSTRAP.md",
             "SOUL.md",
@@ -123,25 +120,6 @@ class WorkspaceBootstrap(
     }
 
     private fun handleNewWorkspace(state: WorkspaceState): WorkspaceState {
-        // Legacy detection: if SOUL.md exists and has meaningful content, skip bootstrap
-        val soulFile = workspacePath.resolve("SOUL.md")
-        if (soulFile.exists()) {
-            val soulContent = try {
-                soulFile.readText().trim()
-            } catch (_: Exception) {
-                ""
-            }
-            if (soulContent.length > LEGACY_SOUL_THRESHOLD) {
-                logger.info { "Legacy workspace detected (SOUL.md has ${soulContent.length} chars), skipping bootstrap" }
-                val completeState = state.copy(
-                    phase = OnboardingPhase.ONBOARDING_COMPLETE,
-                    onboardingCompletedAt = clock.now()
-                )
-                saveState(completeState)
-                return completeState
-            }
-        }
-
         // Seed all template files
         var seededCount = 0
         for (filename in TEMPLATE_FILES) {

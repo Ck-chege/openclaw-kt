@@ -117,7 +117,7 @@ class WorkspaceBootstrapTest {
 
         @Test
         fun `seeds only missing files when some already exist`() {
-            tempDir.resolve("SOUL.md").writeText("short")  // short = not legacy
+            tempDir.resolve("SOUL.md").writeText("short")
             tempDir.resolve("USER.md").writeText("user")
             bootstrap().ensureWorkspace()
 
@@ -129,55 +129,6 @@ class WorkspaceBootstrapTest {
             tempDir.resolve("BOOTSTRAP.md").exists() shouldBe true
             tempDir.resolve("IDENTITY.md").exists() shouldBe true
             tempDir.resolve("AGENTS.md").exists() shouldBe true
-        }
-    }
-
-    @Nested
-    inner class LegacyDetection {
-
-        @Test
-        fun `SOUL md over 50 chars transitions directly to COMPLETE`() {
-            val longSoul = "You are a personal assistant named Claude. You help with coding tasks and general inquiries."
-            tempDir.resolve("SOUL.md").writeText(longSoul)
-
-            val state = bootstrap().ensureWorkspace()
-            state.phase shouldBe OnboardingPhase.ONBOARDING_COMPLETE
-        }
-
-        @Test
-        fun `legacy detection sets onboardingCompletedAt`() {
-            tempDir.resolve("SOUL.md").writeText("A".repeat(51))
-            val state = bootstrap().ensureWorkspace()
-            state.onboardingCompletedAt.shouldNotBeNull()
-        }
-
-        @Test
-        fun `legacy detection does not seed BOOTSTRAP md`() {
-            tempDir.resolve("SOUL.md").writeText("A".repeat(51))
-            bootstrap().ensureWorkspace()
-            tempDir.resolve("BOOTSTRAP.md").exists() shouldBe false
-        }
-
-        @Test
-        fun `SOUL md at exactly 50 chars is NOT legacy`() {
-            tempDir.resolve("SOUL.md").writeText("A".repeat(50))
-            val state = bootstrap().ensureWorkspace()
-            state.phase shouldBe OnboardingPhase.BOOTSTRAP_SEEDED
-        }
-
-        @Test
-        fun `SOUL md at 51 chars IS legacy`() {
-            tempDir.resolve("SOUL.md").writeText("A".repeat(51))
-            val state = bootstrap().ensureWorkspace()
-            state.phase shouldBe OnboardingPhase.ONBOARDING_COMPLETE
-        }
-
-        @Test
-        fun `whitespace-only SOUL md is not legacy`() {
-            tempDir.resolve("SOUL.md").writeText("   \n\t  \n   " + " ".repeat(100))
-            val state = bootstrap().ensureWorkspace()
-            // After trimming, it's empty — not legacy
-            state.phase shouldBe OnboardingPhase.BOOTSTRAP_SEEDED
         }
     }
 
@@ -225,9 +176,8 @@ class WorkspaceBootstrapTest {
         @Test
         fun `ONBOARDING_COMPLETE is a no-op`() {
             val bs = bootstrap()
-            // Force to complete
-            tempDir.resolve("SOUL.md").writeText("A".repeat(100))
             bs.ensureWorkspace()
+            bs.markOnboardingComplete()
 
             // Second call should be no-op
             val state = bs.ensureWorkspace()
@@ -237,8 +187,8 @@ class WorkspaceBootstrapTest {
         @Test
         fun `ONBOARDING_COMPLETE does not modify existing files`() {
             val bs = bootstrap()
-            tempDir.resolve("SOUL.md").writeText("A".repeat(100))
             bs.ensureWorkspace()
+            bs.markOnboardingComplete()
 
             // Modify a file
             tempDir.resolve("SOUL.md").writeText("Modified content")
@@ -333,8 +283,8 @@ class WorkspaceBootstrapTest {
         @Test
         fun `already complete is a no-op`() {
             val bs = bootstrap()
-            tempDir.resolve("SOUL.md").writeText("A".repeat(100))
-            bs.ensureWorkspace() // -> ONBOARDING_COMPLETE
+            bs.ensureWorkspace()
+            bs.markOnboardingComplete() // -> ONBOARDING_COMPLETE
             val state = bs.markOnboardingComplete()
             state.phase shouldBe OnboardingPhase.ONBOARDING_COMPLETE
         }
@@ -384,7 +334,8 @@ class WorkspaceBootstrapTest {
         @Test
         fun `calling ensureWorkspace after completion is idempotent`() {
             val bs = bootstrap()
-            tempDir.resolve("SOUL.md").writeText("A".repeat(100))
+            bs.ensureWorkspace()
+            bs.markOnboardingComplete()
             val first = bs.ensureWorkspace()
             val second = bs.ensureWorkspace()
             val third = bs.ensureWorkspace()
