@@ -9,6 +9,7 @@ data class GatewayConfig(
     val tools: ToolsConfig = ToolsConfig(),
     val memory: MemoryConfig = MemoryConfig(),
     val cron: CronConfig = CronConfig(),
+    val providers: ProvidersConfig = ProvidersConfig(),
     val secrets: SecretsConfig = SecretsConfig()
 )
 
@@ -135,8 +136,69 @@ data class CronConfig(
     val enabled: Boolean = true
 )
 
+/**
+ * Per-provider configuration — base URL overrides and provider-specific settings.
+ * API keys live in [SecretsConfig] or env vars.
+ */
+@Serializable
+data class ProvidersConfig(
+    /** Ollama local endpoint (default: http://127.0.0.1:11434) */
+    val ollama: OllamaConfig = OllamaConfig(),
+    /** vLLM local endpoint (default: http://127.0.0.1:8000/v1) */
+    val vllm: VllmConfig = VllmConfig(),
+    /** LiteLLM proxy endpoint (default: http://127.0.0.1:4000/v1) */
+    val litellm: LitellmConfig = LitellmConfig(),
+    /** Azure OpenAI — requires endpoint + deployment */
+    val azure: AzureConfig = AzureConfig()
+)
+
+@Serializable data class OllamaConfig(val baseUrl: String = "http://127.0.0.1:11434")
+@Serializable data class VllmConfig(val baseUrl: String = "http://127.0.0.1:8000/v1")
+@Serializable data class LitellmConfig(val baseUrl: String = "http://127.0.0.1:4000/v1")
+
+@Serializable
+data class AzureConfig(
+    /** e.g. https://my-resource.openai.azure.com */
+    val endpoint: String? = null,
+    /** Deployment name (= model alias in Azure) */
+    val deployment: String? = null,
+    /** Azure OpenAI API version */
+    val apiVersion: String = "2024-12-01-preview"
+)
+
 @Serializable
 data class SecretsConfig(
+    // Anthropic
     val anthropicApiKey: String? = null,
-    val openaiApiKey: String? = null
+    // OpenAI & Azure
+    val openaiApiKey: String? = null,
+    val azureApiKey: String? = null,
+    // Google / Gemini
+    val googleApiKey: String? = null,
+    // OpenRouter
+    val openrouterApiKey: String? = null,
+    // Mistral
+    val mistralApiKey: String? = null,
+    // Groq
+    val groqApiKey: String? = null,
+    // DeepSeek
+    val deepseekApiKey: String? = null,
+    // xAI (Grok)
+    val xaiApiKey: String? = null,
+    // Together AI
+    val togetherApiKey: String? = null,
+    // NVIDIA NIM
+    val nvidiaApiKey: String? = null,
+    // Cerebras
+    val cerebrasApiKey: String? = null,
+    // Moonshot / Kimi
+    val moonshotApiKey: String? = null,
+    // vLLM (optional)
+    val vllmApiKey: String? = null,
+    // LiteLLM proxy (optional)
+    val litellmApiKey: String? = null,
+    // AWS Bedrock
+    val awsAccessKeyId: String? = null,
+    val awsSecretAccessKey: String? = null,
+    val awsRegion: String? = null
 )
