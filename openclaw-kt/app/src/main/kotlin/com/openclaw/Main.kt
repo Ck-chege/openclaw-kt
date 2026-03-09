@@ -50,6 +50,7 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
+import kotlinx.coroutines.runBlocking
 import java.nio.file.Path
 
 private val logger = KotlinLogging.logger {}
@@ -206,7 +207,8 @@ fun main() {
         )
     }
     val mcpProvider = McpToolsProvider(mcpConfigs)
-    val mcpTools = mcpProvider.discoverTools()
+    val mcpTools = runBlocking { mcpProvider.discoverTools() }
+    Runtime.getRuntime().addShutdownHook(Thread { mcpProvider.disconnect() })
 
     // Web tools (search + fetch)
     val webTools = listOfNotNull(

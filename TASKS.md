@@ -418,11 +418,14 @@
   - [x] Implement `agents_list` tool — list configured agents
   - [x] Register all tools in Koog ToolRegistry
 
-- [x] **8.5 MCP tools integration**
-  - [x] Implement MCP server connection config and provider (placeholder — actual client deferred until Koog adds native MCP support)
+- [ ] **8.5 MCP tools integration**
+  - [x] Implement MCP server connection config and provider
   - [x] Support stdio and SSE transport mode configuration
-  - [x] Transform MCP tools into Koog Tool interface (adapter pattern ready)
-  - [x] Write tests: provider handles configs, returns empty when no servers, validates enabled/disabled
+  - [ ] Replace placeholder provider with Koog-native MCP integration via `McpToolRegistryProvider`
+  - [ ] Wire stdio transport using spawned process handles and SSE transport using Koog defaults
+  - [ ] Surface discovered MCP tools into the main ToolRegistry at startup
+  - [ ] Manage MCP connection/process cleanup on shutdown
+  - [ ] Write tests: provider handles configs, validates enabled/disabled, and returns tools from injected Koog registry factories
 
 - [x] **8.6 Web tools (web_search, web_fetch)**
   - [x] Create `tools/web/` module with Jsoup + Ktor client dependencies

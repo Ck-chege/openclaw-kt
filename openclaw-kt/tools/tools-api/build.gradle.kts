@@ -11,6 +11,7 @@ dependencies {
     implementation(libs.kotlinx.serialization.json)
 
     implementation(libs.bundles.koog)
+    implementation(libs.koog.agents.mcp)
     implementation(libs.bundles.logging)
 
     testImplementation(libs.bundles.kotest)

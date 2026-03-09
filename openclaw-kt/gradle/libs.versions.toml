@@ -88,6 +88,7 @@ koog-executor-llms-all = { module = "ai.koog:prompt-executor-llms-all", version.
 koog-features-event-handler = { module = "ai.koog:agents-features-event-handler", version.ref = "koog" }
 koog-features-snapshot = { module = "ai.koog:agents-features-snapshot", version.ref = "koog" }
 koog-features-trace = { module = "ai.koog:agents-features-trace", version.ref = "koog" }
+koog-agents-mcp = { module = "ai.koog:agents-mcp", version.ref = "koog" }
 
 # Channels
 jda = { module = "net.dv8tion:JDA", version.ref = "jda" }
