@@ -79,6 +79,10 @@ koog-executor-anthropic = { module = "ai.koog:prompt-executor-anthropic-client",
 koog-executor-openai = { module = "ai.koog:prompt-executor-openai-client", version.ref = "koog" }
 koog-executor-google = { module = "ai.koog:prompt-executor-google-client", version.ref = "koog" }
 koog-executor-ollama = { module = "ai.koog:prompt-executor-ollama-client", version.ref = "koog" }
+koog-executor-mistral = { module = "ai.koog:prompt-executor-mistralai-client", version.ref = "koog" }
+koog-executor-openrouter = { module = "ai.koog:prompt-executor-openrouter-client", version.ref = "koog" }
+koog-executor-deepseek = { module = "ai.koog:prompt-executor-deepseek-client", version.ref = "koog" }
+koog-executor-llms-all = { module = "ai.koog:prompt-executor-llms-all", version.ref = "koog" }
 koog-features-event-handler = { module = "ai.koog:agents-features-event-handler", version.ref = "koog" }
 koog-features-trace = { module = "ai.koog:agents-features-trace", version.ref = "koog" }
 
@@ -104,7 +108,11 @@ exposed = ["exposed-core", "exposed-jdbc", "exposed-json", "exposed-kotlin-datet
 kotest = ["kotest-runner-junit5", "kotest-assertions-core"]
 logging = ["kotlin-logging", "logback-classic"]
 koog = ["koog-agents", "koog-agents-ext", "koog-agents-tools", "koog-features-event-handler"]
-koog-executors = ["koog-executor-anthropic", "koog-executor-openai"]
+koog-executors = [
+    "koog-executor-anthropic", "koog-executor-openai", "koog-executor-google",
+    "koog-executor-ollama", "koog-executor-mistral", "koog-executor-openrouter",
+    "koog-executor-deepseek", "koog-executor-llms-all"
+]
 
 [plugins]
 kotlin-jvm = { id = "org.jetbrains.kotlin.jvm", version.ref = "kotlin" }
