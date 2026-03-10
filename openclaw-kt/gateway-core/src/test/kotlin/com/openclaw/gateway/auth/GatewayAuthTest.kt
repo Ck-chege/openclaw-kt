@@ -15,8 +15,9 @@ class GatewayAuthTest {
         val session = auth.authenticate("secret-token", "operator")
 
         session.shouldNotBeNull()
-        session.role.shouldBeInstanceOf<ClientRole.Operator>()
-        (session.role as ClientRole.Operator).level shouldBe OperatorLevel.WRITE
+        val operator = session.role.shouldBeInstanceOf<ClientRole.Operator>()
+        operator.level shouldBe OperatorLevel.WRITE
+        session.isAuthenticated shouldBe true
     }
 
     @Test
@@ -34,6 +35,7 @@ class GatewayAuthTest {
 
         session.shouldNotBeNull()
         session.role.shouldBeInstanceOf<ClientRole.Operator>()
+        session.isAuthenticated shouldBe false
     }
 
     @Test
@@ -44,6 +46,7 @@ class GatewayAuthTest {
         session.shouldNotBeNull()
         session.role.shouldBeInstanceOf<ClientRole.WebChat>()
         session.scopes shouldBe setOf("chat")
+        session.isAuthenticated shouldBe false
     }
 
     @Test
@@ -54,6 +57,7 @@ class GatewayAuthTest {
         session.shouldNotBeNull()
         session.role.shouldBeInstanceOf<ClientRole.Node>()
         session.scopes shouldBe setOf("chat", "agents")
+        session.isAuthenticated shouldBe true
     }
 
     @Test
@@ -64,6 +68,7 @@ class GatewayAuthTest {
         session.shouldNotBeNull()
         val node = session.role.shouldBeInstanceOf<ClientRole.Node>()
         node.deviceId shouldBe "my-device-123"
+        session.isAuthenticated shouldBe false
     }
 
     @Test
@@ -75,6 +80,7 @@ class GatewayAuthTest {
         val node = session.role.shouldBeInstanceOf<ClientRole.Node>()
         node.deviceId.shouldNotBeNull()
         node.deviceId.length shouldBe 36 // UUID format
+        session.isAuthenticated shouldBe false
     }
 
     @Test
@@ -92,6 +98,7 @@ class GatewayAuthTest {
 
         session.shouldNotBeNull()
         session.role.shouldBeInstanceOf<ClientRole.Operator>()
+        session.isAuthenticated shouldBe false
     }
 
     @Test
@@ -101,6 +108,7 @@ class GatewayAuthTest {
         val failSession = auth.authenticate("wrong", "operator")
 
         successSession.shouldNotBeNull()
+        successSession.isAuthenticated shouldBe true
         failSession.shouldBeNull()
     }
 
@@ -111,5 +119,6 @@ class GatewayAuthTest {
 
         session.shouldNotBeNull()
         session.scopes shouldBe setOf("chat", "config", "agents", "tools", "admin")
+        session.isAuthenticated shouldBe false
     }
 }

@@ -5,6 +5,7 @@ import com.openclaw.agent.model.ModelDefinition
 import com.openclaw.agent.model.ModelRegistry
 import com.openclaw.agent.model.readClaudeCliCredentials
 import com.openclaw.agent.rpc.registerAgentHandlers
+import com.openclaw.agent.rpc.registerSkillsHandlers
 import com.openclaw.agent.runtime.AgentRuntime
 import com.openclaw.agent.runtime.CompactionTrigger
 import com.openclaw.agent.runtime.MemoryFlushRunner
@@ -47,6 +48,7 @@ import com.openclaw.memory.MemoryManager
 import com.openclaw.memory.rpc.registerMemoryHandlers
 import com.openclaw.agent.workspace.WorkspaceBootstrap
 import com.openclaw.skills.SkillLoader
+import com.openclaw.skills.SkillsWatcherService
 import io.github.oshai.kotlinlogging.KotlinLogging
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -245,6 +247,7 @@ fun main() {
 
     // Skills system
     val skillLoader = SkillLoader()
+    val skillsWatcher = SkillsWatcherService(skillLoader, appScope)
     logger.info { "Skills system initialized" }
 
     // Config writer for setup handlers
@@ -273,7 +276,18 @@ fun main() {
         agentsConfig = { configManager.config.value.agents },
         toolRegistryFactory = toolRegistryFactory,
         toolsConfig = { configManager.config.value.tools },
-        skillLoader = skillLoader
+        gatewayConfig = { configManager.config.value },
+        skillLoader = skillLoader,
+        skillsWatcher = skillsWatcher
+    )
+    registerSkillsHandlers(
+        router = gateway.router,
+        agentResolver = agentResolver,
+        gatewayConfig = { configManager.config.value },
+        skillLoader = skillLoader,
+        configManager = configManager,
+        configWriter = configWriter,
+        skillsWatcher = skillsWatcher
     )
     registerSessionHandlers(gateway.router, sessionStore)
     registerMemoryHandlers(gateway.router, memoryManager)
@@ -295,6 +309,7 @@ fun main() {
     Runtime.getRuntime().addShutdownHook(Thread {
         logger.info { "Shutting down..." }
         configManager.stopFileWatcher()
+        skillsWatcher.stopAll()
         appScope.cancel()
         gateway.stop()
     })

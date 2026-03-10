@@ -29,7 +29,7 @@ class ToolRegistryFactory(
     fun buildRegistry(
         toolsConfig: ToolsConfig,
         agentToolOverrides: AgentToolOverrides? = null,
-        callerContext: CallerContext = CallerContext()
+        callerContext: CallerContext
     ): ToolRegistry {
         val allowedTools = filterAllowedTools(toolsConfig, agentToolOverrides, callerContext)
 
@@ -51,7 +51,7 @@ class ToolRegistryFactory(
     fun buildDescriptions(
         toolsConfig: ToolsConfig,
         agentToolOverrides: AgentToolOverrides? = null,
-        callerContext: CallerContext = CallerContext()
+        callerContext: CallerContext
     ): List<Pair<String, String>> {
         return filterAllowedTools(toolsConfig, agentToolOverrides, callerContext)
             .map { it.name to it.descriptor.description }

@@ -4,8 +4,13 @@ import com.openclaw.agent.isolation.AgentResolver
 import com.openclaw.agent.model.ModelRegistry
 import com.openclaw.agent.runtime.AgentRuntime
 import com.openclaw.agent.runtime.RunManager
+import com.openclaw.gateway.auth.ClientRole
+import com.openclaw.gateway.auth.WsSession
 import com.openclaw.gateway.config.AgentsConfig
 import com.openclaw.gateway.rpc.RpcRouter
+import com.openclaw.protocol.identifiers.ModelId
+import com.openclaw.protocol.identifiers.OperatorLevel
+import com.openclaw.protocol.identifiers.SessionKey
 import io.kotest.matchers.shouldBe
 import io.kotest.matchers.shouldNotBe
 import kotlinx.coroutines.CoroutineScope
@@ -116,6 +121,97 @@ class AgentRpcHandlersTest {
             assertThrows<IllegalArgumentException> {
                 router.route("agent.run", params, "test-session")
             }
+        }
+    }
+
+    @Nested
+    inner class CallerContextResolution {
+
+        @Test
+        fun `caller context includes provider and cron scope from run`() {
+            val context = buildCallerContext(
+                authSession = null,
+                sessionKey = SessionKey("worker:main:cron:job-1"),
+                modelId = ModelId("openai:gpt-5.4")
+            )
+
+            context.provider shouldBe "openai"
+            context.agentId shouldBe "worker"
+            context.isCron shouldBe true
+            context.isOwner shouldBe false
+        }
+
+        @Test
+        fun `caller context marks authenticated admin scoped operators as owner`() {
+            val authSession = WsSession(
+                id = "operator-session",
+                role = ClientRole.Operator(OperatorLevel.WRITE),
+                scopes = setOf("chat", "tools", "admin"),
+                isAuthenticated = true
+            )
+
+            val context = buildCallerContext(
+                authSession = authSession,
+                sessionKey = SessionKey("main:main:*:main"),
+                modelId = ModelId("anthropic:claude-sonnet-4-6")
+            )
+
+            context.isOwner shouldBe true
+            context.provider shouldBe "anthropic"
+        }
+
+        @Test
+        fun `caller context marks authenticated admin level operators as owner`() {
+            val authSession = WsSession(
+                id = "operator-session",
+                role = ClientRole.Operator(OperatorLevel.ADMIN),
+                scopes = setOf("chat", "tools"),
+                isAuthenticated = true
+            )
+
+            val context = buildCallerContext(
+                authSession = authSession,
+                sessionKey = SessionKey("main:main:*:main"),
+                modelId = ModelId("anthropic:claude-sonnet-4-6")
+            )
+
+            context.isOwner shouldBe true
+        }
+
+        @Test
+        fun `caller context does not treat open mode operators as owner`() {
+            val authSession = WsSession(
+                id = "open-mode-operator",
+                role = ClientRole.Operator(OperatorLevel.WRITE),
+                scopes = setOf("chat", "config", "agents", "tools", "admin"),
+                isAuthenticated = false
+            )
+
+            val context = buildCallerContext(
+                authSession = authSession,
+                sessionKey = SessionKey("main:main:*:main"),
+                modelId = ModelId("anthropic:claude-sonnet-4-6")
+            )
+
+            context.isOwner shouldBe false
+        }
+
+        @Test
+        fun `caller context does not treat authenticated non admin operators as owner`() {
+            val authSession = WsSession(
+                id = "limited-operator",
+                role = ClientRole.Operator(OperatorLevel.WRITE),
+                scopes = setOf("chat", "tools"),
+                isAuthenticated = true
+            )
+
+            val context = buildCallerContext(
+                authSession = authSession,
+                sessionKey = SessionKey("main:main:*:main"),
+                modelId = ModelId("anthropic:claude-sonnet-4-6")
+            )
+
+            context.isOwner shouldBe false
         }
     }
 

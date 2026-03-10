@@ -14,12 +14,15 @@ class MethodScopeRegistryTest {
         fun `read methods require READ`() {
             MethodScopeRegistry.requiredScope("health") shouldBe OperatorLevel.READ
             MethodScopeRegistry.requiredScope("sessions.list") shouldBe OperatorLevel.READ
+            MethodScopeRegistry.requiredScope("skills.list") shouldBe OperatorLevel.READ
         }
 
         @Test
         fun `write methods require WRITE`() {
             MethodScopeRegistry.requiredScope("chat.send") shouldBe OperatorLevel.WRITE
             MethodScopeRegistry.requiredScope("agent.run") shouldBe OperatorLevel.WRITE
+            MethodScopeRegistry.requiredScope("skills.refresh") shouldBe OperatorLevel.WRITE
+            MethodScopeRegistry.requiredScope("skills.update") shouldBe OperatorLevel.WRITE
         }
 
         @Test

@@ -5,7 +5,7 @@ package com.openclaw.tools.policy
  * for owner-only gating and provider-specific restrictions.
  */
 data class CallerContext(
-    /** Whether the caller is the gateway owner (operator). */
+    /** Whether the caller is an authenticated admin-equivalent operator allowed to use owner-only tools. */
     val isOwner: Boolean = false,
     /** Whether this is a cron-triggered invocation. */
     val isCron: Boolean = false,

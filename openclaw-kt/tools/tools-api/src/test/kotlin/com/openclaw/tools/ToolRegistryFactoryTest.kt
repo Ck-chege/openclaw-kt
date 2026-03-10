@@ -9,7 +9,6 @@ import com.openclaw.tools.policy.ToolPolicyPipeline
 import io.kotest.matchers.collections.shouldContainExactlyInAnyOrder
 import io.kotest.matchers.shouldBe
 import kotlinx.serialization.Serializable
-import org.junit.jupiter.api.Nested
 import org.junit.jupiter.api.Test
 
 class ToolRegistryFactoryTest {
@@ -39,38 +38,90 @@ class ToolRegistryFactoryTest {
         override suspend fun execute(args: Args): String = ""
     }
 
-    private val allTools = listOf(StubRead, StubWrite, StubExec)
+    private object StubSessionsSend : SimpleTool<StubSessionsSend.Args>(
+        argsSerializer = Args.serializer(), name = "sessions_send", description = "Send to session"
+    ) {
+        @Serializable
+        data class Args(val key: String = "")
+        override suspend fun execute(args: Args): String = ""
+    }
+
+    private val defaultCaller = CallerContext()
+    private val allTools = listOf(StubRead, StubWrite, StubExec, StubSessionsSend)
     private val factory = ToolRegistryFactory(ToolPolicyPipeline(), allTools)
 
-    @Nested
-    inner class BuildRegistry {
+    @Test
+    fun `builds registry with all tools when profile is full and no restrictions`() {
+        val registry = factory.buildRegistry(ToolsConfig(), callerContext = defaultCaller)
+        registry.tools.map { it.name }.shouldContainExactlyInAnyOrder("read", "write", "exec")
+    }
 
-        @Test
-        fun `builds registry with all tools when profile is full and no restrictions`() {
-            val registry = factory.buildRegistry(ToolsConfig())
-            registry.tools.map { it.name }.shouldContainExactlyInAnyOrder("read", "write", "exec")
-        }
+    @Test
+    fun `filters out denied tools`() {
+        val config = ToolsConfig(deny = listOf("exec"))
+        val registry = factory.buildRegistry(config, callerContext = defaultCaller)
+        registry.tools.map { it.name }.shouldContainExactlyInAnyOrder("read", "write")
+    }
 
-        @Test
-        fun `filters out denied tools`() {
-            val config = ToolsConfig(deny = listOf("exec"))
-            val registry = factory.buildRegistry(config)
-            registry.tools.map { it.name }.shouldContainExactlyInAnyOrder("read", "write")
-        }
+    @Test
+    fun `empty result produces EMPTY registry`() {
+        val config = ToolsConfig(profile = "none")
+        val registry = factory.buildRegistry(config, callerContext = defaultCaller)
+        registry shouldBe ToolRegistry.EMPTY
+    }
 
-        @Test
-        fun `empty result produces EMPTY registry`() {
-            val config = ToolsConfig(profile = "none")
-            val registry = factory.buildRegistry(config)
-            registry shouldBe ToolRegistry.EMPTY
-        }
+    @Test
+    fun `per-agent overrides narrow from global`() {
+        val config = ToolsConfig()
+        val overrides = AgentToolOverrides(allow = listOf("read"))
+        val registry = factory.buildRegistry(
+            config,
+            agentToolOverrides = overrides,
+            callerContext = defaultCaller
+        )
+        registry.tools.map { it.name } shouldBe listOf("read")
+    }
 
-        @Test
-        fun `per-agent overrides narrow from global`() {
-            val config = ToolsConfig()
-            val overrides = AgentToolOverrides(allow = listOf("read"))
-            val registry = factory.buildRegistry(config, agentToolOverrides = overrides)
-            registry.tools.map { it.name } shouldBe listOf("read")
-        }
+    @Test
+    fun `provider-specific restrictions are applied from caller context`() {
+        val config = ToolsConfig(
+            byProvider = mapOf("openai" to com.openclaw.gateway.config.ProviderToolConfig(deny = listOf("exec")))
+        )
+
+        val registry = factory.buildRegistry(
+            config,
+            callerContext = CallerContext(provider = "openai")
+        )
+
+        registry.tools.map { it.name }.shouldContainExactlyInAnyOrder("read", "write")
+    }
+
+    @Test
+    fun `owner-only tools are excluded for non-owner callers`() {
+        val registry = factory.buildRegistry(ToolsConfig(), callerContext = CallerContext(isOwner = false))
+
+        registry.tools.map { it.name }.shouldContainExactlyInAnyOrder("read", "write", "exec")
+    }
+
+    @Test
+    fun `owner-only tools are included for owner callers`() {
+        val registry = factory.buildRegistry(ToolsConfig(), callerContext = CallerContext(isOwner = true))
+
+        registry.tools.map { it.name }
+            .shouldContainExactlyInAnyOrder("read", "write", "exec", "sessions_send")
+    }
+
+    @Test
+    fun `buildDescriptions excludes owner-only tools for non-owner callers`() {
+        val descriptions = factory.buildDescriptions(ToolsConfig(), callerContext = CallerContext(isOwner = false))
+
+        descriptions.map { it.first }.shouldContainExactlyInAnyOrder("read", "write", "exec")
+    }
+
+    @Test
+    fun `buildDescriptions includes owner-only tools for owner callers`() {
+        val descriptions = factory.buildDescriptions(ToolsConfig(), callerContext = CallerContext(isOwner = true))
+
+        descriptions.map { it.first }.shouldContainExactlyInAnyOrder("read", "write", "exec", "sessions_send")
     }
 }

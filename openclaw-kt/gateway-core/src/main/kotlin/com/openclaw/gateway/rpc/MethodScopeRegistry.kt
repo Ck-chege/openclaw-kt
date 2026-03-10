@@ -16,13 +16,13 @@ object MethodScopeRegistry {
         listOf(
             "health", "status", "config.get", "models.list",
             "channels.status", "sessions.list", "sessions.get", "sessions.history",
-            "setup.status", "agents.list"
+            "setup.status", "agents.list", "skills.list", "skills.status"
         ).forEach { put(it, OperatorLevel.READ) }
 
         // WRITE-scoped methods
         listOf(
             "chat.send", "chat.abort", "sessions.send",
-            "wake", "agent.run", "setup.configure"
+            "wake", "agent.run", "setup.configure", "skills.refresh", "skills.update"
         ).forEach { put(it, OperatorLevel.WRITE) }
 
         // APPROVALS-scoped methods

@@ -49,6 +49,7 @@ class RunManager(
         toolRegistry: ToolRegistry = ToolRegistry.EMPTY,
         skillsXml: String = "",
         toolDescriptions: List<ToolDescription> = emptyList(),
+        prepareRun: (() -> (() -> Unit))? = null,
         onEvent: (suspend (AgentEvent) -> Unit)? = null
     ): Flow<AgentEvent> {
         val mutex = sessionMutexes.getOrPut(sessionKey.raw) { Mutex() }
@@ -71,6 +72,7 @@ class RunManager(
         val job = scope.launch {
             mutex.withLock {
                 logger.info { "Acquired mutex for session: ${sessionKey.raw}" }
+                val cleanup = prepareRun?.invoke()
                 try {
                     withTimeoutOrNull(timeoutMs) {
                         events.collect { event ->
@@ -80,6 +82,7 @@ class RunManager(
                         logger.warn { "Run timed out for session: ${sessionKey.raw}" }
                     }
                 } finally {
+                    cleanup?.invoke()
                     activeRuns.remove(sessionKey.raw)
                     logger.info { "Released mutex for session: ${sessionKey.raw}" }
                 }

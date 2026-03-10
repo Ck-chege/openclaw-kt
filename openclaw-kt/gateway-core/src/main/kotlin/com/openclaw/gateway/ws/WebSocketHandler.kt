@@ -196,7 +196,7 @@ class WebSocketHandler(
                 ))
             )
             wsSession.send(io.ktor.websocket.Frame.Text(Frame.serialize(okResponse)))
-            sessionRegistry.register(session.id, wsSession)
+            sessionRegistry.register(session, wsSession)
             logger.info { "WebSocket session ${session.id} connected" }
 
             // Step 5: Message loop — concurrent dispatch via SupervisorJob

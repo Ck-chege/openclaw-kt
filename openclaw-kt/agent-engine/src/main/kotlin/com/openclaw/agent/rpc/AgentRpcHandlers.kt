@@ -3,6 +3,10 @@ package com.openclaw.agent.rpc
 import com.openclaw.agent.isolation.AgentResolver
 import com.openclaw.agent.prompt.ToolDescription
 import com.openclaw.agent.runtime.RunManager
+import com.openclaw.gateway.auth.ClientRole
+import com.openclaw.gateway.auth.WsSession
+import com.openclaw.gateway.config.GatewayConfig
+import com.openclaw.gateway.config.isTruthyPath
 import com.openclaw.gateway.config.AgentsConfig
 import com.openclaw.gateway.config.ToolsConfig
 import com.openclaw.gateway.rpc.RpcRouter
@@ -11,9 +15,13 @@ import com.openclaw.protocol.dto.AgentEvent
 import com.openclaw.protocol.frames.Frame
 import com.openclaw.protocol.identifiers.ChatType
 import com.openclaw.protocol.identifiers.ModelId
+import com.openclaw.protocol.identifiers.OperatorLevel
 import com.openclaw.protocol.identifiers.SessionKey
+import com.openclaw.skills.SkillsConfig
 import com.openclaw.skills.SkillLoader
+import com.openclaw.skills.SkillsWatcherService
 import com.openclaw.tools.ToolRegistryFactory
+import com.openclaw.tools.policy.CallerContext
 import io.github.oshai.kotlinlogging.KotlinLogging
 import kotlinx.serialization.json.*
 import java.util.concurrent.atomic.AtomicLong
@@ -41,7 +49,9 @@ fun registerAgentHandlers(
     agentsConfig: () -> AgentsConfig = { AgentsConfig() },
     toolRegistryFactory: ToolRegistryFactory? = null,
     toolsConfig: () -> ToolsConfig = { ToolsConfig() },
-    skillLoader: SkillLoader? = null
+    gatewayConfig: (() -> GatewayConfig)? = null,
+    skillLoader: SkillLoader? = null,
+    skillsWatcher: SkillsWatcherService? = null
 ) {
     // agent.run -- Start an agent run
     router.register("agent.run") { params, wsSessionId ->
@@ -59,25 +69,46 @@ fun registerAgentHandlers(
         val resolved = agentResolver.resolve(agentsConfig(), sessionKey.agentId)
 
         val modelId = modelIdStr?.let { ModelId(it) } ?: resolved.modelId
+        val callerContext = buildCallerContext(
+            authSession = sessionRegistry?.getAuthenticatedSession(wsSessionId),
+            sessionKey = sessionKey,
+            modelId = modelId
+        )
 
         // Build per-agent tool registry using policy pipeline
         val currentToolsConfig = toolsConfig()
         val agentToolRegistry = toolRegistryFactory?.buildRegistry(
             currentToolsConfig,
-            agentToolOverrides = resolved.toolOverrides
+            agentToolOverrides = resolved.toolOverrides,
+            callerContext = callerContext
         ) ?: ai.koog.agents.core.tools.ToolRegistry.EMPTY
 
         // Extract tool descriptions for system prompt injection (Zone 1)
         val toolDescs = toolRegistryFactory?.buildDescriptions(
             currentToolsConfig,
-            agentToolOverrides = resolved.toolOverrides
+            agentToolOverrides = resolved.toolOverrides,
+            callerContext = callerContext
         )?.map { (name, desc) -> ToolDescription(name, desc) } ?: emptyList()
 
         // Build skills snapshot for this workspace
-        val skillsXml = skillLoader?.let { loader ->
-            val snapshot = loader.buildSnapshot(resolved.workspace.workspacePath)
-            snapshot.promptXml
-        } ?: ""
+        val currentGatewayConfig = gatewayConfig?.invoke()
+        val currentSkillsConfig = currentGatewayConfig?.skills ?: SkillsConfig()
+        skillsWatcher?.ensureWatching(
+            workspacePath = resolved.workspace.workspacePath,
+            config = currentSkillsConfig
+        )
+        val snapshot = skillLoader?.buildSnapshot(
+            workspacePath = resolved.workspace.workspacePath,
+            config = currentSkillsConfig,
+            isConfigPathTruthy = { path -> currentGatewayConfig?.isTruthyPath(path) == true },
+            configStateHash = currentGatewayConfig?.hashCode() ?: currentSkillsConfig.hashCode()
+        )
+        val skillsXml = snapshot?.promptXml ?: ""
+        val prepareRun: (() -> (() -> Unit))? = if (skillLoader != null && snapshot != null) {
+            {
+                skillLoader.applyRuntime(snapshot, currentSkillsConfig)
+            }
+        } else null
 
         runManager.startRun(
             sessionKey = sessionKey,
@@ -88,6 +119,7 @@ fun registerAgentHandlers(
             toolRegistry = agentToolRegistry,
             skillsXml = skillsXml,
             toolDescriptions = toolDescs,
+            prepareRun = prepareRun,
             onEvent = sessionRegistry?.let { registry ->
                 { event: AgentEvent ->
                     val frameEvent = event.toFrameEvent(key)
@@ -174,3 +206,25 @@ private fun AgentEvent.toFrameEvent(sessionKey: String): Frame.Event {
 private fun JsonObject.requireString(name: String): String =
     this[name]?.jsonPrimitive?.contentOrNull
         ?: throw IllegalArgumentException("Missing required parameter: '$name'")
+
+internal fun buildCallerContext(
+    authSession: WsSession?,
+    sessionKey: SessionKey,
+    modelId: ModelId
+): CallerContext {
+    return CallerContext(
+        isOwner = hasOwnerToolAccess(authSession),
+        isCron = sessionKey.isCron,
+        agentId = sessionKey.agentId,
+        provider = modelId.provider
+    )
+}
+
+internal fun hasOwnerToolAccess(authSession: WsSession?): Boolean {
+    val session = authSession ?: return false
+    if (!session.isAuthenticated) return false
+
+    val operator = session.role as? ClientRole.Operator ?: return false
+    return operator.level == OperatorLevel.ADMIN ||
+        session.scopes.any { it.equals("admin", ignoreCase = true) }
+}

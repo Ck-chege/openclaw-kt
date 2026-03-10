@@ -15,4 +15,5 @@ dependencies {
     implementation(libs.bundles.logging)
 
     testImplementation(libs.bundles.kotest)
+    testRuntimeOnly("org.junit.jupiter:junit-jupiter-engine:5.10.2")
 }

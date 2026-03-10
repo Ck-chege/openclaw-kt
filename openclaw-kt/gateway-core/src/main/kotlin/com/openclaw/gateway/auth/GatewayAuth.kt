@@ -27,7 +27,8 @@ sealed class ClientRole {
 data class WsSession(
     val id: String,
     val role: ClientRole,
-    val scopes: Set<String>
+    val scopes: Set<String>,
+    val isAuthenticated: Boolean
 )
 
 /**
@@ -95,7 +96,8 @@ class GatewayAuth(private val token: String?, private val password: String?) {
         val session = WsSession(
             id = UUID.randomUUID().toString(),
             role = clientRole,
-            scopes = scopes
+            scopes = scopes,
+            isAuthenticated = authRequired
         )
         logger.info { "Authenticated session ${session.id} with role=$role" }
         return session
