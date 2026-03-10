@@ -393,6 +393,58 @@ class HoconMapperTest {
     }
 
     @Nested
+    inner class SkillsMapping {
+
+        @Test
+        fun `skills config parses nested entries and truthy paths`() {
+            val hocon = """
+                skills {
+                    allowBundled = ["search"]
+                    load {
+                        extraDirs = ["/tmp/skills-extra"]
+                        maxSkillFileBytes = 4096
+                    }
+                    install {
+                        preferBrew = false
+                        nodeManager = "pnpm"
+                    }
+                    entries {
+                        search {
+                            enabled = true
+                            apiKey = "search-key"
+                            env {
+                                SEARCH_TOKEN = "token-1"
+                            }
+                            config {
+                                region = "us-east-1"
+                            }
+                        }
+                    }
+                }
+                providers {
+                    azure {
+                        endpoint = "https://example.openai.azure.com"
+                    }
+                }
+            """.trimIndent()
+
+            val result = ConfigFactory.parseString(hocon).toGatewayConfig()
+
+            result.skills.allowBundled shouldBe listOf("search")
+            result.skills.load.extraDirs shouldBe listOf("/tmp/skills-extra")
+            result.skills.load.maxSkillFileBytes shouldBe 4096
+            result.skills.install.preferBrew shouldBe false
+            result.skills.install.nodeManager shouldBe "pnpm"
+            result.skills.entries["search"]?.enabled shouldBe true
+            result.skills.entries["search"]?.apiKey shouldBe "search-key"
+            result.skills.entries["search"]?.env shouldBe mapOf("SEARCH_TOKEN" to "token-1")
+            result.skills.entries["search"]?.config shouldBe mapOf("region" to "us-east-1")
+            result.isTruthyPath("providers.azure.endpoint") shouldBe true
+            result.isTruthyPath("providers.azure.deployment") shouldBe false
+        }
+    }
+
+    @Nested
     inner class EnvVarSubstitution {
 
         @Test

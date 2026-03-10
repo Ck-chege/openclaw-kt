@@ -18,6 +18,10 @@ data class SkillFrontmatter(
     val description: String = "",
     val emoji: String? = null,
     val always: Boolean = false,
+    @SerialName("user-invocable")
+    val userInvocable: Boolean = true,
+    @SerialName("disable-model-invocation")
+    val disableModelInvocation: Boolean = false,
     val requires: SkillRequirements = SkillRequirements(),
     val openclaw: OpenClawSkillConfig = OpenClawSkillConfig()
 )
@@ -28,19 +32,24 @@ data class SkillRequirements(
     @SerialName("any_bins")
     val anyBins: List<String> = emptyList(),
     val env: List<String> = emptyList(),
-    val os: List<String> = emptyList()
+    val os: List<String> = emptyList(),
+    val config: List<String> = emptyList()
 )
 
 @Serializable
 data class OpenClawSkillConfig(
     val version: String = "1.0",
-    val tags: List<String> = emptyList()
+    val tags: List<String> = emptyList(),
+    val homepage: String? = null,
+    val skillKey: String? = null,
+    val primaryEnv: String? = null
 )
 
 /**
  * Describes bundled resource files discovered in a skill directory.
  * Skills can include scripts (executable), references (docs), and assets (templates/configs).
  */
+@Serializable
 data class SkillResources(
     val scripts: List<String> = emptyList(),
     val references: List<String> = emptyList(),
@@ -73,6 +82,21 @@ data class SkillResources(
     }
 }
 
+@Serializable
+enum class SkillSource {
+    WORKSPACE,
+    USER,
+    BUNDLED,
+    EXTRA,
+    PLUGIN
+}
+
+@Serializable
+data class SkillInvocationPolicy(
+    val userInvocable: Boolean = true,
+    val disableModelInvocation: Boolean = false
+)
+
 /**
  * Resolved skill metadata with filesystem path attached.
  */
@@ -80,11 +104,17 @@ data class SkillMeta(
     val frontmatter: SkillFrontmatter,
     val path: Path,
     val body: String,
-    val resources: SkillResources = SkillResources.EMPTY
+    val resources: SkillResources = SkillResources.EMPTY,
+    val source: SkillSource = SkillSource.WORKSPACE,
+    val baseDir: Path = path.parent,
+    val invocation: SkillInvocationPolicy = SkillInvocationPolicy()
 ) {
     val name: String get() = frontmatter.name
+    val skillKey: String get() = frontmatter.openclaw.skillKey?.ifBlank { null } ?: name
     val description: String get() = frontmatter.description
     val emoji: String? get() = frontmatter.emoji
+    val homepage: String? get() = frontmatter.openclaw.homepage
+    val primaryEnv: String? get() = frontmatter.openclaw.primaryEnv
     val always: Boolean get() = frontmatter.always
     val requires: SkillRequirements get() = frontmatter.requires
     val hasScripts: Boolean get() = resources.hasScripts
@@ -96,5 +126,8 @@ data class SkillMeta(
  */
 sealed class SkillGateResult {
     data object Eligible : SkillGateResult()
-    data class Ineligible(val reason: String) : SkillGateResult()
+    data class Ineligible(
+        val missing: SkillMissing,
+        val reason: String
+    ) : SkillGateResult()
 }

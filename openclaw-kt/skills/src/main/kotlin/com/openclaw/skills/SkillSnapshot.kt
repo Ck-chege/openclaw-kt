@@ -6,7 +6,8 @@ package com.openclaw.skills
  */
 data class SkillSnapshot(
     val skills: List<SkillMeta>,
-    val promptXml: String
+    val promptXml: String,
+    val version: Long = 0L
 ) {
     companion object {
         val EMPTY = SkillSnapshot(skills = emptyList(), promptXml = "")

@@ -13,11 +13,18 @@ class SkillGateTest {
         bins: List<String> = emptyList(),
         anyBins: List<String> = emptyList(),
         env: List<String> = emptyList(),
-        os: List<String> = emptyList()
+        os: List<String> = emptyList(),
+        config: List<String> = emptyList()
     ): SkillMeta = SkillMeta(
         frontmatter = SkillFrontmatter(
             name = name,
-            requires = SkillRequirements(bins = bins, anyBins = anyBins, env = env, os = os)
+            requires = SkillRequirements(
+                bins = bins,
+                anyBins = anyBins,
+                env = env,
+                os = os,
+                config = config
+            )
         ),
         path = Path.of("/fake/SKILL.md"),
         body = ""
@@ -116,6 +123,25 @@ class SkillGateTest {
             val result = gate.evaluate(skill(env = listOf("API_KEY", "SECRET")))
             result.shouldBeInstanceOf<SkillGateResult.Ineligible>()
             result.reason shouldBe "Missing required env vars: [SECRET]"
+        }
+    }
+
+    @Nested
+    inner class ConfigGating {
+
+        @Test
+        fun `all config paths satisfied means eligible`() {
+            val gate = SkillGate(isConfigPathTruthy = { path -> path in setOf("providers.azure.endpoint", "secrets.openaiApiKey") })
+            gate.evaluate(skill(config = listOf("providers.azure.endpoint", "secrets.openaiApiKey"))) shouldBe SkillGateResult.Eligible
+        }
+
+        @Test
+        fun `missing config path means ineligible`() {
+            val gate = SkillGate(isConfigPathTruthy = { path -> path == "providers.azure.endpoint" })
+            val result = gate.evaluate(skill(config = listOf("providers.azure.endpoint", "secrets.openaiApiKey")))
+            result.shouldBeInstanceOf<SkillGateResult.Ineligible>()
+            result.reason shouldBe "Missing required config paths: [secrets.openaiApiKey]"
+            result.missing.config shouldBe listOf("secrets.openaiApiKey")
         }
     }
 

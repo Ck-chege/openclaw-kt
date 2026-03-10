@@ -76,7 +76,11 @@ object SkillParser {
         return SkillMeta(
             frontmatter = frontmatter,
             path = path,
-            body = body
+            body = body,
+            invocation = SkillInvocationPolicy(
+                userInvocable = frontmatter.userInvocable,
+                disableModelInvocation = frontmatter.disableModelInvocation
+            )
         )
     }
 

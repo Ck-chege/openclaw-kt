@@ -22,6 +22,7 @@ fun diffConfigPaths(prev: GatewayConfig, next: GatewayConfig): List<String> {
     if (prev.gateway.auth != next.gateway.auth)   paths += "gateway.auth"
     if (prev.gateway.reload != next.gateway.reload) paths += "gateway.reload"
     if (prev.agents != next.agents)               paths += "agents"
+    if (prev.skills != next.skills)               paths += "skills"
     if (prev.secrets != next.secrets)             paths += "secrets"
     if (prev.tools != next.tools)                 paths += "tools"
     if (prev.memory != next.memory)               paths += "memory"

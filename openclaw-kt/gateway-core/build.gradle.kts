@@ -6,6 +6,7 @@ plugins {
 dependencies {
     implementation(project(":protocol"))
     implementation(project(":session-store"))
+    implementation(project(":skills"))
 
     implementation(libs.bundles.ktor.server)
     implementation(libs.ktor.server.status.pages)

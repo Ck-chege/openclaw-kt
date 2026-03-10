@@ -26,17 +26,25 @@ class SkillLoaderTest {
         always: Boolean = false,
         body: String = "",
         path: Path = Path.of("/fake/$name/SKILL.md"),
-        resources: SkillResources = SkillResources.EMPTY
+        resources: SkillResources = SkillResources.EMPTY,
+        source: SkillSource = SkillSource.WORKSPACE,
+        invocation: SkillInvocationPolicy = SkillInvocationPolicy(),
+        primaryEnv: String? = null,
+        requiredEnv: List<String> = emptyList()
     ): SkillMeta = SkillMeta(
         frontmatter = SkillFrontmatter(
             name = name,
             description = description,
             emoji = emoji,
-            always = always
+            always = always,
+            requires = SkillRequirements(env = requiredEnv),
+            openclaw = OpenClawSkillConfig(primaryEnv = primaryEnv)
         ),
         path = path,
         body = body,
-        resources = resources
+        resources = resources,
+        source = source,
+        invocation = invocation
     )
 
     private fun createSkillFile(
@@ -141,6 +149,22 @@ class SkillLoaderTest {
             xml shouldNotContain "has_references"
             xml shouldNotContain "has_assets"
         }
+
+        @Test
+        fun `disable model invocation skills are omitted from prompt XML`() {
+            val loader = SkillLoader()
+            val xml = loader.buildPromptXml(listOf(
+                makeSkillMeta("visible", description = "Visible skill"),
+                makeSkillMeta(
+                    "hidden",
+                    description = "Hidden skill",
+                    invocation = SkillInvocationPolicy(disableModelInvocation = true)
+                )
+            ))
+
+            xml shouldContain "name=\"visible\""
+            xml shouldNotContain "name=\"hidden\""
+        }
     }
 
     @Nested
@@ -243,6 +267,60 @@ class SkillLoaderTest {
         }
 
         @Test
+        fun `returns snapshotted body after skill file changes on disk`() {
+            val workspace = tempDir.resolve("workspace").createDirectories()
+            val skillsDir = workspace.resolve("skills").createDirectories()
+            val skillFile = createSkillFile(
+                skillsDir,
+                "search",
+                "search",
+                body = "Original instructions."
+            )
+
+            val gate = SkillGate(FakeEnvironmentChecker())
+            val scanner = SkillScanner(gate)
+            val loader = SkillLoader(scanner)
+            val snapshot = loader.buildSnapshot(workspace)
+
+            skillFile.writeText(
+                """
+                |---
+                |name: search
+                |description: Updated
+                |---
+                |Updated instructions.
+                """.trimMargin()
+            )
+
+            val full = loader.loadFull(snapshot, "search")
+            full.shouldNotBeNull()
+            full shouldBe "Original instructions."
+        }
+
+        @Test
+        fun `returns snapshotted body after skill file is deleted from disk`() {
+            val workspace = tempDir.resolve("workspace").createDirectories()
+            val skillsDir = workspace.resolve("skills").createDirectories()
+            val skillFile = createSkillFile(
+                skillsDir,
+                "search",
+                "search",
+                body = "Original instructions."
+            )
+
+            val gate = SkillGate(FakeEnvironmentChecker())
+            val scanner = SkillScanner(gate)
+            val loader = SkillLoader(scanner)
+            val snapshot = loader.buildSnapshot(workspace)
+
+            skillFile.toFile().delete()
+
+            val full = loader.loadFull(snapshot, "search")
+            full.shouldNotBeNull()
+            full shouldBe "Original instructions."
+        }
+
+        @Test
         fun `returns null when not in snapshot`() {
             val loader = SkillLoader()
             val snapshot = SkillSnapshot.EMPTY
@@ -324,6 +402,19 @@ class SkillLoaderTest {
         }
 
         @Test
+        fun `XML truncation keeps complete skill boundaries`() {
+            val loader = SkillLoader(skillsBlockCharLimit = 160)
+            val xml = loader.buildPromptXml(listOf(
+                makeSkillMeta("skill-one", "short"),
+                makeSkillMeta("skill-two", "this description should push the second skill over the limit")
+            ))
+
+            xml shouldContain "name=\"skill-one\""
+            xml shouldNotContain "name=\"skill-two\""
+            xml shouldContain "</available_skills>"
+        }
+
+        @Test
         fun `skills within limits are unchanged`() {
             val loader = SkillLoader(maxSkillsCount = 10)
             val skills = (1..3).map { makeSkillMeta("skill-$it", "Description $it") }
@@ -335,6 +426,77 @@ class SkillLoaderTest {
             xml shouldContain "name=\"skill-3\""
             xml shouldContain "<available_skills>"
             xml shouldContain "</available_skills>"
+        }
+    }
+
+    @Nested
+    inner class StatusAndRuntime {
+
+        @Test
+        fun `bundled skill can be blocked by allowlist`() {
+            val workspace = tempDir.resolve("workspace").createDirectories()
+            val bundled = tempDir.resolve("bundled").createDirectories()
+            createSkillFile(bundled, "deploy", "deploy", "Bundled deploy")
+
+            val loader = SkillLoader(SkillScanner(SkillGate(FakeEnvironmentChecker())))
+            val report = loader.buildStatus(
+                workspacePath = workspace,
+                config = SkillsConfig(allowBundled = listOf("search")),
+                bundledSkillsPath = bundled
+            )
+
+            report.skills.size shouldBe 1
+            report.skills.first().blockedByAllowlist shouldBe true
+            report.skills.first().eligible shouldBe false
+        }
+
+        @Test
+        fun `disabled entry is excluded from eligible snapshot`() {
+            val workspace = tempDir.resolve("workspace").createDirectories()
+            val skillsDir = workspace.resolve("skills").createDirectories()
+            createSkillFile(skillsDir, "search", "search")
+
+            val loader = SkillLoader(SkillScanner(SkillGate(FakeEnvironmentChecker())))
+            val snapshot = loader.buildSnapshot(
+                workspacePath = workspace,
+                config = SkillsConfig(entries = mapOf("search" to SkillEntryConfig(enabled = false)))
+            )
+
+            snapshot.skills shouldBe emptyList()
+            snapshot.promptXml.shouldBeEmpty()
+        }
+
+        @Test
+        fun `runtime env overrides apply and revert after cleanup`() {
+            val loader = SkillLoader()
+            val snapshot = SkillSnapshot(
+                skills = listOf(
+                    makeSkillMeta(
+                        "search",
+                        primaryEnv = "OPENAI_API_KEY",
+                        requiredEnv = listOf("OPENAI_API_KEY")
+                    )
+                ),
+                promptXml = "<available_skills />"
+            )
+            val cleanup = loader.applyRuntime(
+                snapshot,
+                SkillsConfig(
+                    entries = mapOf(
+                        "search" to SkillEntryConfig(
+                            apiKey = "secret-key",
+                            env = mapOf("OPENAI_API_KEY" to "override-key", "PATH" to "/tmp/blocked")
+                        )
+                    )
+                )
+            )
+
+            SkillEnvironment.get("OPENAI_API_KEY") shouldBe "override-key"
+            SkillEnvironment.get("PATH") shouldBe null
+
+            cleanup()
+
+            SkillEnvironment.get("OPENAI_API_KEY") shouldBe null
         }
     }
 }

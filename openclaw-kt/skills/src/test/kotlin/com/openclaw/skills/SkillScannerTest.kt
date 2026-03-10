@@ -6,6 +6,7 @@ import io.kotest.matchers.shouldBe
 import org.junit.jupiter.api.Nested
 import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.io.TempDir
+import java.nio.file.Files
 import java.nio.file.Path
 import kotlin.io.path.createDirectories
 import kotlin.io.path.writeText
@@ -200,6 +201,59 @@ class SkillScannerTest {
             val results = scanner.scan(listOf(dir))
             results shouldHaveSize 1
             results[0].resources shouldBe SkillResources.EMPTY
+        }
+    }
+
+    @Nested
+    inner class Hardening {
+
+        @Test
+        fun `symlinked skill directory escaping root is rejected`() {
+            val root = tempDir.resolve("skills").createDirectories()
+            val outside = tempDir.resolve("outside").createDirectories()
+            createSkill(outside, "escaped", "escaped")
+
+            Files.createSymbolicLink(root.resolve("escaped-link"), outside.resolve("escaped"))
+
+            val scanner = SkillScanner(allEligibleGate())
+            val results = scanner.scanDetailedSources(
+                listOf(SkillDirectorySource(root, SkillSource.WORKSPACE))
+            )
+
+            results.shouldBeEmpty()
+        }
+
+        @Test
+        fun `symlinked skill file escaping root is rejected`() {
+            val root = tempDir.resolve("skills").createDirectories()
+            val outside = tempDir.resolve("outside").createDirectories()
+            val escapedFile = createSkill(outside, "escaped", "escaped").resolve("SKILL.md")
+            val linkedDir = root.resolve("linked").createDirectories()
+
+            Files.createSymbolicLink(linkedDir.resolve("SKILL.md"), escapedFile)
+
+            val scanner = SkillScanner(allEligibleGate())
+            val results = scanner.scanDetailedSources(
+                listOf(SkillDirectorySource(root, SkillSource.WORKSPACE))
+            )
+
+            results.shouldBeEmpty()
+        }
+
+        @Test
+        fun `oversized skill files are skipped`() {
+            val root = tempDir.resolve("skills").createDirectories()
+            val skillDir = root.resolve("huge").createDirectories()
+            val largeBody = "x".repeat(400)
+            skillDir.resolve("SKILL.md").writeText("---\nname: huge\n---\n$largeBody")
+
+            val scanner = SkillScanner(allEligibleGate())
+            val results = scanner.scanDetailedSources(
+                directories = listOf(SkillDirectorySource(root, SkillSource.WORKSPACE)),
+                loadConfig = SkillsLoadConfig(maxSkillFileBytes = 32)
+            )
+
+            results.shouldBeEmpty()
         }
     }
 

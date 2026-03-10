@@ -1,5 +1,7 @@
 package com.openclaw.gateway.config
 
+import com.openclaw.skills.SkillEntryConfig
+import com.openclaw.skills.SkillsConfig
 import com.typesafe.config.ConfigFactory
 import io.kotest.matchers.shouldBe
 import io.kotest.matchers.string.shouldContain
@@ -87,6 +89,41 @@ class ConfigWriterTest {
             writer().write(config)
             val content = configPath().readText()
             content shouldContain "model = \"openai:gpt-4o\""
+        }
+
+        @Test
+        fun `writes skills section and round trips`() {
+            val config = GatewayConfig(
+                skills = SkillsConfig(
+                    allowBundled = listOf("search"),
+                    entries = mapOf(
+                        "search" to SkillEntryConfig(
+                            enabled = false,
+                            apiKey = "skill-api-key",
+                            env = mapOf("SEARCH_TOKEN" to "token-1"),
+                            config = mapOf("region" to "us-east-1")
+                        )
+                    )
+                )
+            )
+
+            writer().write(config)
+            val content = configPath().readText()
+
+            content shouldContain "skills {"
+            content shouldContain "allowBundled = [\"search\"]"
+            content shouldContain "entries {"
+            content shouldContain "\"search\" {"
+            content shouldContain "enabled = false"
+            content shouldContain "apiKey = \"skill-api-key\""
+            content shouldContain "\"SEARCH_TOKEN\" = \"token-1\""
+
+            val parsed = ConfigFactory.parseFile(configPath().toFile()).toGatewayConfig()
+            parsed.skills.allowBundled shouldBe listOf("search")
+            parsed.skills.entries["search"]?.enabled shouldBe false
+            parsed.skills.entries["search"]?.apiKey shouldBe "skill-api-key"
+            parsed.skills.entries["search"]?.env shouldBe mapOf("SEARCH_TOKEN" to "token-1")
+            parsed.skills.entries["search"]?.config shouldBe mapOf("region" to "us-east-1")
         }
 
         @Test

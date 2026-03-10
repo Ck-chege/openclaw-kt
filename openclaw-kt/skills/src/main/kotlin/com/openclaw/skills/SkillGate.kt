@@ -11,7 +11,8 @@ private val logger = KotlinLogging.logger {}
  * Short-circuits on first failure.
  */
 class SkillGate(
-    private val env: EnvironmentChecker = EnvironmentChecker()
+    private val env: EnvironmentChecker = EnvironmentChecker(),
+    private val isConfigPathTruthy: (String) -> Boolean = { false }
 ) {
     /**
      * Evaluate whether a skill is eligible to run in the current environment.
@@ -25,7 +26,10 @@ class SkillGate(
             if (currentOs !in requires.os) {
                 val reason = "OS '$currentOs' not in required: ${requires.os}"
                 logger.debug { "Skill '${skill.name}' ineligible: $reason" }
-                return SkillGateResult.Ineligible(reason)
+                return SkillGateResult.Ineligible(
+                    missing = SkillMissing(os = requires.os),
+                    reason = reason
+                )
             }
         }
 
@@ -35,7 +39,10 @@ class SkillGate(
             if (missing.isNotEmpty()) {
                 val reason = "Missing required binaries: $missing"
                 logger.debug { "Skill '${skill.name}' ineligible: $reason" }
-                return SkillGateResult.Ineligible(reason)
+                return SkillGateResult.Ineligible(
+                    missing = SkillMissing(bins = missing),
+                    reason = reason
+                )
             }
         }
 
@@ -45,7 +52,10 @@ class SkillGate(
             if (!anyPresent) {
                 val reason = "None of anyBins present: ${requires.anyBins}"
                 logger.debug { "Skill '${skill.name}' ineligible: $reason" }
-                return SkillGateResult.Ineligible(reason)
+                return SkillGateResult.Ineligible(
+                    missing = SkillMissing(anyBins = requires.anyBins),
+                    reason = reason
+                )
             }
         }
 
@@ -55,7 +65,22 @@ class SkillGate(
             if (missing.isNotEmpty()) {
                 val reason = "Missing required env vars: $missing"
                 logger.debug { "Skill '${skill.name}' ineligible: $reason" }
-                return SkillGateResult.Ineligible(reason)
+                return SkillGateResult.Ineligible(
+                    missing = SkillMissing(env = missing),
+                    reason = reason
+                )
+            }
+        }
+
+        if (requires.config.isNotEmpty()) {
+            val missing = requires.config.filterNot(isConfigPathTruthy)
+            if (missing.isNotEmpty()) {
+                val reason = "Missing required config paths: $missing"
+                logger.debug { "Skill '${skill.name}' ineligible: $reason" }
+                return SkillGateResult.Ineligible(
+                    missing = SkillMissing(config = missing),
+                    reason = reason
+                )
             }
         }
 

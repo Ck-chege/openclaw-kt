@@ -33,7 +33,7 @@ open class EnvironmentChecker {
      * Check if an environment variable is set (non-null).
      */
     open fun hasEnvVar(name: String): Boolean {
-        return System.getenv(name) != null
+        return SkillEnvironment.get(name) != null || System.getenv(name) != null
     }
 
     /**

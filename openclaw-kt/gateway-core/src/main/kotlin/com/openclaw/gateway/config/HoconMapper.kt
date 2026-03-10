@@ -1,5 +1,9 @@
 package com.openclaw.gateway.config
 
+import com.openclaw.skills.SkillEntryConfig
+import com.openclaw.skills.SkillsConfig
+import com.openclaw.skills.SkillsInstallConfig
+import com.openclaw.skills.SkillsLoadConfig
 import com.typesafe.config.Config
 import com.typesafe.config.ConfigException
 
@@ -30,6 +34,7 @@ private inline fun <T> Config.getOrDefault(
 fun Config.toGatewayConfig(): GatewayConfig = GatewayConfig(
     gateway = if (hasPath("gateway")) getConfig("gateway").toGatewaySettings() else GatewaySettings(),
     agents = if (hasPath("agents")) getConfig("agents").toAgentsConfig() else AgentsConfig(),
+    skills = if (hasPath("skills")) getConfig("skills").toSkillsConfig() else SkillsConfig(),
     tools = if (hasPath("tools")) getConfig("tools").toToolsConfig() else ToolsConfig(),
     memory = if (hasPath("memory")) getConfig("memory").toMemoryConfig() else MemoryConfig(),
     cron = if (hasPath("cron")) getConfig("cron").toCronConfig() else CronConfig(),
@@ -85,6 +90,46 @@ fun Config.toAgentEntry(): AgentEntry = try {
 } catch (e: ConfigException.Missing) {
     throw ConfigError.InvalidValue("agents.list[].id", "required string (agent id)", e)
 }
+
+fun Config.toSkillsConfig(): SkillsConfig = SkillsConfig(
+    allowBundled = getOrDefault("allowBundled", SkillsConfig().allowBundled) { getStringList(it) },
+    load = if (hasPath("load")) getConfig("load").toSkillsLoadConfig() else SkillsLoadConfig(),
+    install = if (hasPath("install")) getConfig("install").toSkillsInstallConfig() else SkillsInstallConfig(),
+    entries = if (hasPath("entries")) getConfig("entries").root().keys.associateWith { key ->
+        getConfig("entries").getConfig(key).toSkillEntryConfig()
+    } else emptyMap()
+)
+
+fun Config.toSkillsLoadConfig(): SkillsLoadConfig = SkillsLoadConfig(
+    extraDirs = getOrDefault("extraDirs", SkillsLoadConfig().extraDirs) { getStringList(it) },
+    watch = getOrDefault("watch", SkillsLoadConfig().watch) { getBoolean(it) },
+    watchDebounceMs = getOrDefault("watchDebounceMs", SkillsLoadConfig().watchDebounceMs) { getInt(it) },
+    maxCandidatesPerRoot = getOrDefault("maxCandidatesPerRoot", SkillsLoadConfig().maxCandidatesPerRoot) { getInt(it) },
+    maxSkillsLoadedPerSource = getOrDefault("maxSkillsLoadedPerSource", SkillsLoadConfig().maxSkillsLoadedPerSource) { getInt(it) },
+    maxSkillsInPrompt = getOrDefault("maxSkillsInPrompt", SkillsLoadConfig().maxSkillsInPrompt) { getInt(it) },
+    maxSkillsPromptChars = getOrDefault("maxSkillsPromptChars", SkillsLoadConfig().maxSkillsPromptChars) { getInt(it) },
+    maxSkillFileBytes = getOrDefault("maxSkillFileBytes", SkillsLoadConfig().maxSkillFileBytes) { getInt(it) }
+)
+
+fun Config.toSkillsInstallConfig(): SkillsInstallConfig = SkillsInstallConfig(
+    preferBrew = getOrDefault("preferBrew", SkillsInstallConfig().preferBrew) { getBoolean(it) },
+    nodeManager = getOrDefault("nodeManager", SkillsInstallConfig().nodeManager) { getString(it) }
+)
+
+fun Config.toSkillEntryConfig(): SkillEntryConfig = SkillEntryConfig(
+    enabled = getOrDefault("enabled", null) { getBoolean(it) },
+    env = if (hasPath("env")) {
+        getConfig("env").root().keys.associateWith { key -> getString("env.$key") }
+    } else {
+        emptyMap()
+    },
+    apiKey = getOrDefault("apiKey", null) { getString(it) },
+    config = if (hasPath("config")) {
+        getConfig("config").root().keys.associateWith { key -> getString("config.$key") }
+    } else {
+        emptyMap()
+    }
+)
 
 fun Config.toToolsConfig(): ToolsConfig = ToolsConfig(
     profile = getOrDefault("profile", ToolsConfig().profile) { getString(it) },

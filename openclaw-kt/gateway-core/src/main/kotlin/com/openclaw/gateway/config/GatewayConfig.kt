@@ -1,11 +1,13 @@
 package com.openclaw.gateway.config
 
+import com.openclaw.skills.SkillsConfig
 import kotlinx.serialization.Serializable
 
 @Serializable
 data class GatewayConfig(
     val gateway: GatewaySettings = GatewaySettings(),
     val agents: AgentsConfig = AgentsConfig(),
+    val skills: SkillsConfig = SkillsConfig(),
     val tools: ToolsConfig = ToolsConfig(),
     val memory: MemoryConfig = MemoryConfig(),
     val cron: CronConfig = CronConfig(),

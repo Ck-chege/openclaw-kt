@@ -1,6 +1,7 @@
 package com.openclaw.gateway.config
 
 import io.github.oshai.kotlinlogging.KotlinLogging
+import com.openclaw.skills.SkillEntryConfig
 import java.nio.file.Path
 import java.nio.file.attribute.PosixFilePermission
 import kotlin.io.path.setPosixFilePermissions
@@ -123,6 +124,63 @@ class ConfigWriter(private val configPath: Path) {
                     appendLine("        { name = ${quote(mcp.name)}, transport = ${quote(mcp.transport)}, command = ${quote(mcp.command ?: "")}, enabled = ${mcp.enabled} }")
                 }
                 appendLine("    ]")
+            }
+            appendLine("}")
+            appendLine()
+        }
+
+        // Skills section
+        val skills = config.skills
+        val skillsDefaults = defaults.skills
+        if (skills != skillsDefaults) {
+            appendLine("skills {")
+            if (skills.allowBundled.isNotEmpty()) {
+                appendLine("    allowBundled = [${skills.allowBundled.joinToString(", ") { quote(it) }}]")
+            }
+            if (skills.load != skillsDefaults.load) {
+                appendLine("    load {")
+                if (skills.load.extraDirs.isNotEmpty()) {
+                    appendLine("        extraDirs = [${skills.load.extraDirs.joinToString(", ") { quote(it) }}]")
+                }
+                if (skills.load.watch != skillsDefaults.load.watch) appendLine("        watch = ${skills.load.watch}")
+                if (skills.load.watchDebounceMs != skillsDefaults.load.watchDebounceMs) appendLine("        watchDebounceMs = ${skills.load.watchDebounceMs}")
+                if (skills.load.maxCandidatesPerRoot != skillsDefaults.load.maxCandidatesPerRoot) appendLine("        maxCandidatesPerRoot = ${skills.load.maxCandidatesPerRoot}")
+                if (skills.load.maxSkillsLoadedPerSource != skillsDefaults.load.maxSkillsLoadedPerSource) appendLine("        maxSkillsLoadedPerSource = ${skills.load.maxSkillsLoadedPerSource}")
+                if (skills.load.maxSkillsInPrompt != skillsDefaults.load.maxSkillsInPrompt) appendLine("        maxSkillsInPrompt = ${skills.load.maxSkillsInPrompt}")
+                if (skills.load.maxSkillsPromptChars != skillsDefaults.load.maxSkillsPromptChars) appendLine("        maxSkillsPromptChars = ${skills.load.maxSkillsPromptChars}")
+                if (skills.load.maxSkillFileBytes != skillsDefaults.load.maxSkillFileBytes) appendLine("        maxSkillFileBytes = ${skills.load.maxSkillFileBytes}")
+                appendLine("    }")
+            }
+            if (skills.install != skillsDefaults.install) {
+                appendLine("    install {")
+                if (skills.install.preferBrew != skillsDefaults.install.preferBrew) appendLine("        preferBrew = ${skills.install.preferBrew}")
+                if (skills.install.nodeManager != skillsDefaults.install.nodeManager) appendLine("        nodeManager = ${quote(skills.install.nodeManager)}")
+                appendLine("    }")
+            }
+            if (skills.entries.isNotEmpty()) {
+                appendLine("    entries {")
+                skills.entries.toSortedMap().forEach { (name, entry) ->
+                    if (entry == SkillEntryConfig()) return@forEach
+                    appendLine("        ${quote(name)} {")
+                    entry.enabled?.let { appendLine("            enabled = $it") }
+                    entry.apiKey?.let { appendLine("            apiKey = ${quote(it)}") }
+                    if (entry.env.isNotEmpty()) {
+                        appendLine("            env {")
+                        entry.env.toSortedMap().forEach { (key, value) ->
+                            appendLine("                ${quote(key)} = ${quote(value)}")
+                        }
+                        appendLine("            }")
+                    }
+                    if (entry.config.isNotEmpty()) {
+                        appendLine("            config {")
+                        entry.config.toSortedMap().forEach { (key, value) ->
+                            appendLine("                ${quote(key)} = ${quote(value)}")
+                        }
+                        appendLine("            }")
+                    }
+                    appendLine("        }")
+                }
+                appendLine("    }")
             }
             appendLine("}")
             appendLine()
