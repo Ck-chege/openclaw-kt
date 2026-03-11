@@ -3,6 +3,7 @@ import { useConnectionStore } from '@/stores/connection-store';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Input } from '@/components/ui/input';
+import { FeatureState } from '@/components/FeatureState';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import {
   Dialog,
@@ -32,7 +33,6 @@ import {
   ChevronRight,
   Check,
   X,
-  Circle,
   CalendarClock,
   Timer,
   Bot,
@@ -119,70 +119,33 @@ function formatRelative(iso: string): string {
 }
 
 export default function CronPage() {
-  const { client } = useConnectionStore();
+  const { client, state } = useConnectionStore();
   const [jobs, setJobs] = useState<CronJob[]>([]);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
   const [search, setSearch] = useState('');
   const [showDialog, setShowDialog] = useState(false);
   const [editingJob, setEditingJob] = useState<CronJob | null>(null);
 
   const fetchJobs = useCallback(async () => {
-    if (!client) return;
+    if (!client || state !== 'connected') {
+      setJobs([]);
+      setLoading(false);
+      setError('Connect to the gateway to manage scheduled jobs.');
+      return;
+    }
     setLoading(true);
     try {
       const res = await client.request('cron.list');
       setJobs((res.jobs || []) as CronJob[]);
-    } catch {
-      // Fallback demo data
-      setJobs([
-        {
-          id: 'cron-1',
-          name: 'Daily Summary',
-          schedule: '0 9 * * *',
-          message: 'Summarize all conversations from yesterday and send a digest.',
-          agentId: 'main',
-          enabled: true,
-          lastRun: new Date(Date.now() - 3600000).toISOString(),
-          nextRun: new Date(Date.now() + 72000000).toISOString(),
-          lastStatus: 'success',
-          lastDuration: 4200,
-          runCount: 28,
-          runs: [
-            { id: 'r1', timestamp: new Date(Date.now() - 3600000).toISOString(), duration: 4200, status: 'success', output: 'Digest sent successfully. 12 conversations summarized.' },
-            { id: 'r2', timestamp: new Date(Date.now() - 90000000).toISOString(), duration: 3800, status: 'success', output: 'Digest sent successfully. 8 conversations summarized.' },
-            { id: 'r3', timestamp: new Date(Date.now() - 176400000).toISOString(), duration: 5100, status: 'error', error: 'Timeout waiting for model response' },
-          ],
-        },
-        {
-          id: 'cron-2',
-          name: 'Health Check',
-          schedule: '*/15 * * * *',
-          message: 'Run a system health check and report any issues.',
-          agentId: 'main',
-          enabled: true,
-          lastRun: new Date(Date.now() - 600000).toISOString(),
-          nextRun: new Date(Date.now() + 300000).toISOString(),
-          lastStatus: 'success',
-          lastDuration: 1200,
-          runCount: 192,
-        },
-        {
-          id: 'cron-3',
-          name: 'Weekly Report',
-          schedule: '0 9 * * 1',
-          message: 'Generate a weekly progress report.',
-          agentId: 'main',
-          enabled: false,
-          lastRun: new Date(Date.now() - 604800000).toISOString(),
-          lastStatus: 'success',
-          lastDuration: 8500,
-          runCount: 4,
-        },
-      ]);
+      setError(null);
+    } catch (e) {
+      setJobs([]);
+      setError((e as Error).message || 'This gateway does not expose cron management yet.');
     } finally {
       setLoading(false);
     }
-  }, [client]);
+  }, [client, state]);
 
   useEffect(() => { fetchJobs(); }, [fetchJobs]);
 
@@ -195,7 +158,14 @@ export default function CronPage() {
   const handleToggle = useCallback(async (job: CronJob) => {
     if (!client) return;
     try {
-      await client.request('cron.toggle', { id: job.id, enabled: !job.enabled });
+      await client.request('cron.update', {
+        id: job.id,
+        name: job.name,
+        schedule: job.schedule,
+        message: job.message,
+        agentId: job.agentId,
+        enabled: !job.enabled,
+      });
     } catch { /* ignore */ }
     setJobs((prev) => prev.map((j) => j.id === job.id ? { ...j, enabled: !j.enabled } : j));
   }, [client]);
@@ -203,7 +173,7 @@ export default function CronPage() {
   const handleRunNow = useCallback(async (jobId: string) => {
     if (!client) return;
     try {
-      await client.request('cron.runNow', { id: jobId });
+      await client.request('cron.run', { id: jobId });
     } catch { /* ignore */ }
     fetchJobs();
   }, [client, fetchJobs]);
@@ -211,7 +181,7 @@ export default function CronPage() {
   const handleDelete = useCallback(async (jobId: string) => {
     if (!client) return;
     try {
-      await client.request('cron.delete', { id: jobId });
+      await client.request('cron.remove', { id: jobId });
     } catch { /* ignore */ }
     setJobs((prev) => prev.filter((j) => j.id !== jobId));
   }, [client]);
@@ -222,7 +192,7 @@ export default function CronPage() {
       if (editingJob) {
         await client.request('cron.update', { id: editingJob.id, ...data });
       } else {
-        await client.request('cron.create', data);
+        await client.request('cron.add', data);
       }
     } catch { /* ignore */ }
     setShowDialog(false);
@@ -235,6 +205,17 @@ export default function CronPage() {
       <div className="flex-1 flex items-center justify-center">
         <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
       </div>
+    );
+  }
+
+  if (error && jobs.length === 0) {
+    return (
+      <FeatureState
+        icon={<Clock className="h-6 w-6" />}
+        title="Scheduled Jobs Unavailable"
+        description={error}
+        action={<Button variant="outline" size="sm" onClick={fetchJobs}>Retry</Button>}
+      />
     );
   }
 
@@ -302,6 +283,7 @@ export default function CronPage() {
 
       {/* Create/Edit Dialog */}
       <CronJobDialog
+        key={editingJob?.id || 'new-job'}
         open={showDialog}
         editingJob={editingJob}
         onClose={() => { setShowDialog(false); setEditingJob(null); }}
@@ -452,27 +434,10 @@ function CronJobDialog({ open, editingJob, onClose, onSave }: {
   onClose: () => void;
   onSave: (data: { name: string; schedule: string; message: string; agentId: string }) => void;
 }) {
-  const [name, setName] = useState('');
-  const [schedule, setSchedule] = useState('0 * * * *');
-  const [message, setMessage] = useState('');
-  const [agentId, setAgentId] = useState('main');
-
-  // Reset form when dialog opens
-  useEffect(() => {
-    if (open) {
-      if (editingJob) {
-        setName(editingJob.name);
-        setSchedule(editingJob.schedule);
-        setMessage(editingJob.message);
-        setAgentId(editingJob.agentId || 'main');
-      } else {
-        setName('');
-        setSchedule('0 * * * *');
-        setMessage('');
-        setAgentId('main');
-      }
-    }
-  }, [open, editingJob]);
+  const [name, setName] = useState(() => editingJob?.name || '');
+  const [schedule, setSchedule] = useState(() => editingJob?.schedule || '0 * * * *');
+  const [message, setMessage] = useState(() => editingJob?.message || '');
+  const [agentId, setAgentId] = useState(() => editingJob?.agentId || 'main');
 
   const isValid = name.trim() && schedule.trim() && message.trim();
 

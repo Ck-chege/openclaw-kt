@@ -2,6 +2,7 @@ import { useState, useEffect, useCallback } from 'react';
 import { useConnectionStore } from '@/stores/connection-store';
 import { useDashboardStore } from '@/stores/dashboard-store';
 import { useThemeStore } from '@/stores/theme-store';
+import { getDefaultGatewayUrl } from '@/lib/gateway-url';
 import { notify } from '@/lib/notifications';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
@@ -89,7 +90,7 @@ export default function SettingsPage() {
 function GeneralTab() {
   const { state } = useConnectionStore();
   const [gatewayUrl, setGatewayUrl] = useState(
-    localStorage.getItem('openclaw-gateway-url') || `${window.location.protocol === 'https:' ? 'wss:' : 'ws:'}//${window.location.host}/ws`
+    localStorage.getItem('openclaw-gateway-url')?.trim() || getDefaultGatewayUrl()
   );
   const [token, setToken] = useState(localStorage.getItem('openclaw-token') || '');
   const [showToken, setShowToken] = useState(false);
@@ -120,7 +121,7 @@ function GeneralTab() {
             <Input
               value={gatewayUrl}
               onChange={(e) => setGatewayUrl(e.target.value)}
-              placeholder="ws://localhost:8080/ws"
+              placeholder={getDefaultGatewayUrl()}
               className="h-8 text-sm font-mono"
             />
           </div>
@@ -628,13 +629,21 @@ function DataTab() {
 /* ── About Tab ──────────────────────────────────────────── */
 function AboutTab() {
   const { state } = useConnectionStore();
-  const { client } = useConnectionStore();
   const [health, setHealth] = useState<Record<string, unknown> | null>(null);
 
   useEffect(() => {
-    if (!client) return;
-    client.request('health.check').then((res) => setHealth(res)).catch(() => setHealth(null));
-  }, [client]);
+    const controller = new AbortController();
+
+    fetch('/health', { signal: controller.signal })
+      .then(async (res) => {
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        return res.json() as Promise<Record<string, unknown>>;
+      })
+      .then((res) => setHealth(res))
+      .catch(() => setHealth(null));
+
+    return () => controller.abort();
+  }, []);
 
   return (
     <div className="max-w-lg space-y-6">

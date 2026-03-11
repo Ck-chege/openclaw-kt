@@ -66,9 +66,12 @@ export const ToolCallBlock = memo(function ToolCallBlock({ toolCall }: ToolCallB
     );
 
   // Extract file path from args if present (for read/write/edit tools)
-  const filePath = typeof toolCall.args === 'object'
-    ? (toolCall.args as Record<string, unknown>).path || (toolCall.args as Record<string, unknown>).file_path || (toolCall.args as Record<string, unknown>).filePath
+  const filePathValue = typeof toolCall.args === 'object'
+    ? (toolCall.args as Record<string, unknown>).path
+      ?? (toolCall.args as Record<string, unknown>).file_path
+      ?? (toolCall.args as Record<string, unknown>).filePath
     : null;
+  const filePath = typeof filePathValue === 'string' ? filePathValue : null;
 
   return (
     <Collapsible open={open} onOpenChange={setOpen}>
@@ -80,7 +83,7 @@ export const ToolCallBlock = memo(function ToolCallBlock({ toolCall }: ToolCallB
         <span className="font-mono font-medium">{toolCall.name}</span>
 
         {/* File path badge */}
-        {filePath && typeof filePath === 'string' && (
+        {filePath && (
           <Badge variant="outline" className="text-[10px] font-mono font-normal h-4 max-w-[200px] truncate">
             {filePath}
           </Badge>

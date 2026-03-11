@@ -1,4 +1,4 @@
-import { lazy, Suspense } from 'react';
+import { lazy, Suspense, type ReactNode } from 'react';
 import { createBrowserRouter, Navigate } from 'react-router-dom';
 import { AppShell } from '@/components/AppShell';
 import { Loader2 } from 'lucide-react';
@@ -24,7 +24,7 @@ function PageLoader() {
   );
 }
 
-function SuspenseWrapper({ children }: { children: React.ReactNode }) {
+function SuspenseWrapper({ children }: { children: ReactNode }) {
   return <Suspense fallback={<PageLoader />}>{children}</Suspense>;
 }
 

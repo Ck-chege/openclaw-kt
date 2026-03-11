@@ -20,7 +20,6 @@ import {
   PanelLeft,
   PanelLeftClose,
   ChevronRight,
-  Menu,
   X,
 } from 'lucide-react';
 
@@ -91,11 +90,6 @@ export function AppSidebar() {
   const isOnChat = location.pathname === '/chat' || location.pathname === '/';
 
   const isExpanded = expanded || pinned;
-
-  // Close mobile nav on route change
-  useEffect(() => {
-    setMobileOpen(false);
-  }, [location.pathname]);
 
   // Expose toggle for HeaderBar hamburger
   useEffect(() => {

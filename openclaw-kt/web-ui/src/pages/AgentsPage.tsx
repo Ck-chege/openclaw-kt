@@ -3,13 +3,12 @@ import { useConnectionStore } from '@/stores/connection-store';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { ScrollArea } from '@/components/ui/scroll-area';
-import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible';
+import { FeatureState } from '@/components/FeatureState';
 import {
   Users,
   Bot,
   Cpu,
   Loader2,
-  ChevronRight,
   FileText,
   Wrench,
   Sparkles,
@@ -31,35 +30,34 @@ interface AgentInfo {
 }
 
 export default function AgentsPage() {
-  const { client } = useConnectionStore();
+  const { client, state } = useConnectionStore();
   const [agents, setAgents] = useState<AgentInfo[]>([]);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
   const [selectedAgent, setSelectedAgent] = useState<AgentInfo | null>(null);
   const [fileContent, setFileContent] = useState<{ name: string; content: string } | null>(null);
 
   const fetchAgents = useCallback(async () => {
-    if (!client) return;
+    if (!client || state !== 'connected') {
+      setAgents([]);
+      setLoading(false);
+      setError('Connect to the gateway to load configured agents.');
+      return;
+    }
     setLoading(true);
     try {
       const res = await client.request('agents.list');
       const list = (res.agents || []) as AgentInfo[];
       setAgents(list);
-    } catch {
-      // Fallback: show a default agent
-      setAgents([{
-        id: 'main',
-        model: 'anthropic/claude-sonnet-4-20250514',
-        isRunning: false,
-        sessionCount: 0,
-        totalTokens: 0,
-        tools: ['exec', 'read', 'write', 'edit', 'web_search', 'web_fetch'],
-        skills: [],
-        workspaceFiles: ['SOUL.md', 'AGENTS.md', 'IDENTITY.md', 'USER.md', 'TOOLS.md', 'HEARTBEAT.md', 'MEMORY.md', 'BOOTSTRAP.md'],
-      }]);
+      setError(null);
+    } catch (e) {
+      setAgents([]);
+      setSelectedAgent(null);
+      setError((e as Error).message || 'This gateway does not expose agent metadata yet.');
     } finally {
       setLoading(false);
     }
-  }, [client]);
+  }, [client, state]);
 
   useEffect(() => { fetchAgents(); }, [fetchAgents]);
 
@@ -68,8 +66,8 @@ export default function AgentsPage() {
     try {
       const res = await client.request('workspace.read', { agentId, file: fileName });
       setFileContent({ name: fileName, content: (res.content as string) || '' });
-    } catch {
-      setFileContent({ name: fileName, content: `(Could not load ${fileName})` });
+    } catch (e) {
+      setFileContent({ name: fileName, content: `Could not load ${fileName}: ${(e as Error).message}` });
     }
   }, [client]);
 
@@ -78,6 +76,28 @@ export default function AgentsPage() {
       <div className="flex-1 flex items-center justify-center">
         <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
       </div>
+    );
+  }
+
+  if (error && agents.length === 0) {
+    return (
+      <FeatureState
+        icon={<Users className="h-6 w-6" />}
+        title="Agents Unavailable"
+        description={error}
+        action={<Button variant="outline" size="sm" onClick={fetchAgents}>Retry</Button>}
+      />
+    );
+  }
+
+  if (agents.length === 0) {
+    return (
+      <FeatureState
+        icon={<Users className="h-6 w-6" />}
+        title="No Agents Returned"
+        description="The gateway responded successfully but did not return any configured agents."
+        action={<Button variant="outline" size="sm" onClick={fetchAgents}>Refresh</Button>}
+      />
     );
   }
 

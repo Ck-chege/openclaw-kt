@@ -46,6 +46,15 @@ interface SkillEntryInfo {
   hasApiKey: boolean;
 }
 
+interface SkillInvocationInfo {
+  userInvocable: boolean;
+  disableModelInvocation: boolean;
+  commandName?: string;
+  commandDispatch?: string;
+  commandTool?: string;
+  commandArgMode?: string;
+}
+
 interface SkillInfo {
   name: string;
   description?: string;
@@ -61,6 +70,7 @@ interface SkillInfo {
   requirements?: RequirementInfo[];
   resources?: SkillResourcesInfo;
   entry?: SkillEntryInfo;
+  invocation?: SkillInvocationInfo;
 }
 
 const SOURCE_LABELS: Record<string, { label: string; className: string }> = {
@@ -253,6 +263,11 @@ export default function SkillsPage() {
                       {skill.filePath}
                     </p>
                   )}
+                  {skill.invocation?.commandName && (
+                    <p className="text-[11px] text-muted-foreground/70 mt-0.5">
+                      Command: <span className="font-mono">/{skill.invocation.commandName}</span>
+                    </p>
+                  )}
                 </div>
 
                 {skill.requirements && skill.requirements.length > 0 && (
@@ -402,6 +417,34 @@ function SkillDetail({
                 {requirement.type}: {requirement.value}
               </Badge>
             ))}
+          </div>
+        </div>
+      )}
+
+      {skill.invocation && (
+        <div className="mb-4">
+          <h3 className="text-xs font-medium text-muted-foreground mb-2">Invocation</h3>
+          <div className="flex flex-wrap gap-2">
+            {skill.invocation.userInvocable && skill.invocation.commandName && (
+              <Badge variant="outline" className="text-[11px] gap-1">
+                <span className="font-mono">/{skill.invocation.commandName}</span>
+              </Badge>
+            )}
+            {skill.invocation.disableModelInvocation && (
+              <Badge variant="outline" className="text-[11px] text-status-warning border-status-warning-border">
+                Hidden from model prompt
+              </Badge>
+            )}
+            {skill.invocation.commandDispatch === 'tool' && skill.invocation.commandTool && (
+              <Badge variant="outline" className="text-[11px] gap-1">
+                Tool dispatch: <span className="font-mono">{skill.invocation.commandTool}</span>
+              </Badge>
+            )}
+            {skill.invocation.commandArgMode && (
+              <Badge variant="outline" className="text-[11px] gap-1">
+                Arg mode: <span className="font-mono">{skill.invocation.commandArgMode}</span>
+              </Badge>
+            )}
           </div>
         </div>
       )}

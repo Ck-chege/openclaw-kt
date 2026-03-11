@@ -1,5 +1,6 @@
 import { create } from 'zustand';
 import { GatewayClient } from '@/lib/gateway-client';
+import { resolveGatewayUrl } from '@/lib/gateway-url';
 import { notify } from '@/lib/notifications';
 
 type ConnectionState = 'disconnected' | 'connecting' | 'connected';
@@ -29,11 +30,7 @@ export const useConnectionStore = create<ConnectionStore>((set, get) => ({
     const existing = get().client;
     if (existing) existing.disconnect();
 
-    // KT gateway WebSocket endpoint is mounted at "/" (not "/ws").
-    // When accessed via a tunnel/proxy (non-localhost), route through the /gw proxy path.
-    const isLocal = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1';
-    const wsPath = isLocal ? '/' : '/gw';
-    const wsUrl = url || `${window.location.protocol === 'https:' ? 'wss:' : 'ws:'}//${window.location.host}${wsPath}`;
+    const wsUrl = resolveGatewayUrl(url);
     const authToken = token || localStorage.getItem('openclaw-token') || undefined;
     const client = new GatewayClient(wsUrl, authToken, role);
 

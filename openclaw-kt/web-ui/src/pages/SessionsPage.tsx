@@ -20,13 +20,11 @@ import {
   ArrowUpDown,
   ArrowUp,
   ArrowDown,
-  MessageSquare,
   Trash2,
   RotateCcw,
   ExternalLink,
   MoreHorizontal,
   Inbox,
-  Download,
   Filter,
   X,
 } from 'lucide-react';
@@ -111,11 +109,6 @@ export default function SessionsPage() {
     }
     setSelected(new Set());
   }, [client, selected, deleteSession]);
-
-  const SortIcon = ({ field }: { field: SortField }) => {
-    if (sortField !== field) return <ArrowUpDown className="h-3 w-3 opacity-30" />;
-    return sortDir === 'asc' ? <ArrowUp className="h-3 w-3" /> : <ArrowDown className="h-3 w-3" />;
-  };
 
   const hasFilters = !!filterAgent || !!filterChannel;
 

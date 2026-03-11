@@ -1,14 +1,7 @@
-import { useState, useEffect, useCallback, useMemo } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { useConnectionStore } from '@/stores/connection-store';
-import { useDashboardStore } from '@/stores/dashboard-store';
 import { Button } from '@/components/ui/button';
-import { Badge } from '@/components/ui/badge';
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuTrigger,
-} from '@/components/ui/dropdown-menu';
+import { FeatureState } from '@/components/FeatureState';
 import {
   BarChart3,
   RefreshCw,
@@ -18,7 +11,6 @@ import {
   MessageSquare,
   Clock,
   TrendingUp,
-  ChevronDown,
 } from 'lucide-react';
 import {
   AreaChart,
@@ -60,57 +52,6 @@ const PIE_COLORS = [
   'hsl(199, 89%, 48%)',  // cyan
 ];
 
-function generateDemoData(range: TimeRange): UsageData {
-  const now = Date.now();
-  const points = range === '24h' ? 24 : range === '7d' ? 7 : 30;
-  const intervalMs = range === '24h' ? 3600000 : 86400000;
-
-  const tokensByTime = Array.from({ length: points }, (_, i) => {
-    const time = new Date(now - (points - 1 - i) * intervalMs);
-    const label = range === '24h'
-      ? time.toLocaleTimeString('en-US', { hour: '2-digit', hour12: false })
-      : time.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
-    const base = 800 + Math.random() * 2000;
-    return {
-      time: label,
-      input: Math.round(base * (0.6 + Math.random() * 0.4)),
-      output: Math.round(base * (0.3 + Math.random() * 0.3)),
-    };
-  });
-
-  const totalInput = tokensByTime.reduce((s, d) => s + d.input, 0);
-  const totalOutput = tokensByTime.reduce((s, d) => s + d.output, 0);
-  const totalTokens = totalInput + totalOutput;
-
-  return {
-    summary: {
-      totalTokens,
-      estimatedCost: totalTokens * 0.000003 + totalOutput * 0.000012,
-      totalMessages: Math.round(totalTokens / 450),
-      avgResponseTime: 1800 + Math.random() * 2200,
-    },
-    tokensByTime,
-    tokensByModel: [
-      { name: 'Claude Sonnet 4.5', tokens: Math.round(totalTokens * 0.55) },
-      { name: 'Claude Opus 4.6', tokens: Math.round(totalTokens * 0.2) },
-      { name: 'GPT-4.1', tokens: Math.round(totalTokens * 0.15) },
-      { name: 'GPT-4o', tokens: Math.round(totalTokens * 0.1) },
-    ],
-    tokensByAgent: [
-      { agent: 'main', tokens: Math.round(totalTokens * 0.7) },
-      { agent: 'code-review', tokens: Math.round(totalTokens * 0.2) },
-      { agent: 'research', tokens: Math.round(totalTokens * 0.1) },
-    ],
-    topSessions: [
-      { key: 'main:main:*:main', tokens: Math.round(totalTokens * 0.3), messages: 47 },
-      { key: 'main:main:*:refactor-auth', tokens: Math.round(totalTokens * 0.15), messages: 23 },
-      { key: 'code-review:main:*:pr-42', tokens: Math.round(totalTokens * 0.1), messages: 12 },
-      { key: 'main:main:*:debug-ws', tokens: Math.round(totalTokens * 0.08), messages: 18 },
-      { key: 'research:main:*:koog-docs', tokens: Math.round(totalTokens * 0.06), messages: 9 },
-    ],
-  };
-}
-
 function formatTokens(n: number): string {
   if (n < 1000) return String(n);
   if (n < 1_000_000) return `${(n / 1000).toFixed(1)}k`;
@@ -129,35 +70,50 @@ function formatMs(ms: number): string {
 }
 
 export default function UsagePage() {
-  const { client } = useConnectionStore();
+  const { client, state } = useConnectionStore();
   const [data, setData] = useState<UsageData | null>(null);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
   const [range, setRange] = useState<TimeRange>('7d');
 
   const fetchUsage = useCallback(async () => {
-    if (!client) {
-      setData(generateDemoData(range));
+    if (!client || state !== 'connected') {
+      setData(null);
       setLoading(false);
+      setError('Connect to the gateway to inspect usage analytics.');
       return;
     }
     setLoading(true);
     try {
       const res = await client.request('usage.summary', { range });
       setData(res as unknown as UsageData);
-    } catch {
-      setData(generateDemoData(range));
+      setError(null);
+    } catch (e) {
+      setData(null);
+      setError((e as Error).message || 'This gateway does not expose usage analytics yet.');
     } finally {
       setLoading(false);
     }
-  }, [client, range]);
+  }, [client, state, range]);
 
   useEffect(() => { fetchUsage(); }, [fetchUsage]);
 
-  if (loading || !data) {
+  if (loading) {
     return (
       <div className="flex-1 flex items-center justify-center">
         <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
       </div>
+    );
+  }
+
+  if (!data) {
+    return (
+      <FeatureState
+        icon={<BarChart3 className="h-6 w-6" />}
+        title="Usage Analytics Unavailable"
+        description={error || 'No usage data is currently available.'}
+        action={<Button variant="outline" size="sm" onClick={fetchUsage}>Retry</Button>}
+      />
     );
   }
 
@@ -245,7 +201,7 @@ export default function UsagePage() {
                 <Tooltip
                   contentStyle={{ fontSize: 11, borderRadius: 8, border: '1px solid hsl(var(--border))' }}
                   labelStyle={{ fontWeight: 600 }}
-                  formatter={(value: number) => [formatTokens(value), '']}
+                  formatter={(value) => [formatTokens(Number(value || 0)), '']}
                 />
                 <Legend wrapperStyle={{ fontSize: 11 }} />
                 <Area type="monotone" dataKey="input" name="Input" stroke="hsl(221, 83%, 53%)" fill="url(#inputGrad)" strokeWidth={2} />
@@ -278,7 +234,7 @@ export default function UsagePage() {
                 </Pie>
                 <Tooltip
                   contentStyle={{ fontSize: 11, borderRadius: 8, border: '1px solid hsl(var(--border))' }}
-                  formatter={(value: number) => [formatTokens(value), 'tokens']}
+                  formatter={(value) => [formatTokens(Number(value || 0)), 'tokens']}
                 />
               </PieChart>
             </ResponsiveContainer>
@@ -308,7 +264,7 @@ export default function UsagePage() {
                 <YAxis tick={{ fontSize: 10 }} className="fill-muted-foreground" tickFormatter={(v) => formatTokens(v)} />
                 <Tooltip
                   contentStyle={{ fontSize: 11, borderRadius: 8, border: '1px solid hsl(var(--border))' }}
-                  formatter={(value: number) => [formatTokens(value), 'tokens']}
+                  formatter={(value) => [formatTokens(Number(value || 0)), 'tokens']}
                 />
                 <Bar dataKey="tokens" fill="hsl(221, 83%, 53%)" radius={[4, 4, 0, 0]} />
               </BarChart>

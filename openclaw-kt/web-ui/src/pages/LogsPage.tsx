@@ -1,9 +1,8 @@
 import { useState, useEffect, useCallback, useRef, useMemo } from 'react';
 import { useConnectionStore } from '@/stores/connection-store';
 import { Button } from '@/components/ui/button';
-import { Badge } from '@/components/ui/badge';
+import { FeatureState } from '@/components/FeatureState';
 import { Input } from '@/components/ui/input';
-import { ScrollArea } from '@/components/ui/scroll-area';
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -23,7 +22,6 @@ import {
   Copy,
   Download,
   Clock,
-  Circle,
   Inbox,
 } from 'lucide-react';
 
@@ -63,9 +61,10 @@ function formatTimestamp(iso: string, relative: boolean): string {
 }
 
 export default function LogsPage() {
-  const { client } = useConnectionStore();
+  const { client, state } = useConnectionStore();
   const [logs, setLogs] = useState<LogEntry[]>([]);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
   const [search, setSearch] = useState('');
   const [filterLevel, setFilterLevel] = useState<LogLevel | null>(null);
   const [filterSource, setFilterSource] = useState<string | null>(null);
@@ -76,65 +75,43 @@ export default function LogsPage() {
   const pauseBufferRef = useRef<LogEntry[]>([]);
 
   const fetchLogs = useCallback(async () => {
-    if (!client) return;
+    if (!client || state !== 'connected') {
+      setLogs([]);
+      setLoading(false);
+      setError('Connect to the gateway to inspect logs.');
+      return;
+    }
     setLoading(true);
     try {
       const res = await client.request('logs.recent');
       setLogs((res.entries || []) as LogEntry[]);
-    } catch {
-      // Fallback demo data
-      const now = Date.now();
-      const sources = ['gateway', 'agent-engine', 'session-store', 'tools.exec', 'skills', 'cron'];
-      const demoMessages: { level: LogLevel; source: string; message: string }[] = [
-        { level: 'INFO', source: 'gateway', message: 'Server started on port 8080' },
-        { level: 'INFO', source: 'gateway', message: 'WebSocket client connected from 127.0.0.1' },
-        { level: 'DEBUG', source: 'session-store', message: 'Session sess_abc123 loaded from JSONL (42 messages, 3 compactions)' },
-        { level: 'INFO', source: 'agent-engine', message: 'Agent "main" initialized with model anthropic/claude-sonnet-4-20250514' },
-        { level: 'DEBUG', source: 'agent-engine', message: 'System prompt assembled: 3 workspace files, 6 tools, 2 skills' },
-        { level: 'INFO', source: 'tools.exec', message: 'Executing: ls -la /workspace (timeout: 30s)' },
-        { level: 'WARN', source: 'tools.exec', message: 'Process exceeded soft timeout (15s), sending SIGTERM' },
-        { level: 'INFO', source: 'tools.exec', message: 'Process exited with code 0' },
-        { level: 'DEBUG', source: 'skills', message: 'Loaded 5 skills: commit, review-pr, simplify, keybindings-help, claude-developer-platform' },
-        { level: 'INFO', source: 'gateway', message: 'RPC request: session.create (agent=main, channel=webchat)' },
-        { level: 'INFO', source: 'session-store', message: 'Created session sess_def456' },
-        { level: 'DEBUG', source: 'agent-engine', message: 'Starting agent run for session sess_def456' },
-        { level: 'INFO', source: 'agent-engine', message: 'Agent completed: 2 tool calls, 1,247 tokens, 3.2s' },
-        { level: 'WARN', source: 'gateway', message: 'WebSocket ping timeout for client ws_789, reconnecting...' },
-        { level: 'ERROR', source: 'agent-engine', message: 'Model API error: 429 Too Many Requests (retry in 2s)' },
-        { level: 'INFO', source: 'agent-engine', message: 'Retry succeeded after 1 attempt' },
-        { level: 'INFO', source: 'cron', message: 'Running scheduled job "Daily Summary" (cron: 0 9 * * *)' },
-        { level: 'INFO', source: 'cron', message: 'Job "Daily Summary" completed in 4.2s' },
-        { level: 'DEBUG', source: 'session-store', message: 'Compacting session sess_abc123 (messages: 127 → 42)' },
-        { level: 'INFO', source: 'gateway', message: 'WebSocket client disconnected (normal close)' },
-      ];
-
-      setLogs(demoMessages.map((m, i) => ({
-        id: `log-${i}`,
-        timestamp: new Date(now - (demoMessages.length - i) * 2000).toISOString(),
-        ...m,
-      })));
+      setError(null);
+    } catch (e) {
+      setLogs([]);
+      setError((e as Error).message || 'This gateway does not expose log retrieval yet.');
     } finally {
       setLoading(false);
     }
-  }, [client]);
+  }, [client, state]);
 
   // Subscribe to log stream
   useEffect(() => {
-    if (!client) return;
+    if (!client || state !== 'connected') return;
 
-    const handler = (event: { type: string; entry?: LogEntry }) => {
-      if (event.type === 'log.entry' && event.entry) {
+    const handler = (payload: Record<string, unknown>) => {
+      const entry = (payload.entry ?? payload) as Partial<LogEntry>;
+      if (entry.id && entry.timestamp && entry.level && entry.source && entry.message) {
         if (paused) {
-          pauseBufferRef.current.push(event.entry);
+          pauseBufferRef.current.push(entry as LogEntry);
         } else {
-          setLogs((prev) => [...prev.slice(-999), event.entry!]);
+          setLogs((prev) => [...prev.slice(-999), entry as LogEntry]);
         }
       }
     };
 
     client.on('log.entry', handler);
     return () => { client.off('log.entry', handler); };
-  }, [client, paused]);
+  }, [client, state, paused]);
 
   // Flush pause buffer when resuming
   useEffect(() => {
@@ -198,6 +175,17 @@ export default function LogsPage() {
       <div className="flex-1 flex items-center justify-center">
         <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
       </div>
+    );
+  }
+
+  if (error && logs.length === 0) {
+    return (
+      <FeatureState
+        icon={<ScrollText className="h-6 w-6" />}
+        title="Logs Unavailable"
+        description={error}
+        action={<Button variant="outline" size="sm" onClick={fetchLogs}>Retry</Button>}
+      />
     );
   }
 

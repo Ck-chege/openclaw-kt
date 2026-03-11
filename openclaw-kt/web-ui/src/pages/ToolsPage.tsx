@@ -2,6 +2,7 @@ import { useState, useEffect, useCallback } from 'react';
 import { useConnectionStore } from '@/stores/connection-store';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
+import { FeatureState } from '@/components/FeatureState';
 import { Input } from '@/components/ui/input';
 import {
   Wrench,
@@ -9,12 +10,10 @@ import {
   FileText,
   Globe,
   Search,
-  Pencil,
   Cpu,
   Shield,
   Loader2,
   RefreshCw,
-  Filter,
 } from 'lucide-react';
 
 interface ToolInfo {
@@ -44,39 +43,32 @@ const GROUP_COLORS: Record<string, string> = {
 };
 
 export default function ToolsPage() {
-  const { client } = useConnectionStore();
+  const { client, state } = useConnectionStore();
   const [tools, setTools] = useState<ToolInfo[]>([]);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
   const [search, setSearch] = useState('');
   const [filterGroup, setFilterGroup] = useState<string | null>(null);
 
   const fetchTools = useCallback(async () => {
-    if (!client) return;
+    if (!client || state !== 'connected') {
+      setTools([]);
+      setLoading(false);
+      setError('Connect to the gateway to inspect the tool catalog.');
+      return;
+    }
     setLoading(true);
     try {
       const res = await client.request('tools.catalog');
       setTools((res.tools || []) as ToolInfo[]);
-    } catch {
-      // Fallback: show known tools
-      setTools([
-        { name: 'exec', description: 'Execute shell commands', group: 'exec', permission: 'elevated' },
-        { name: 'process', description: 'Manage background processes', group: 'exec', permission: 'elevated' },
-        { name: 'read', description: 'Read file contents', group: 'filesystem', permission: 'standard' },
-        { name: 'write', description: 'Write file contents', group: 'filesystem', permission: 'standard' },
-        { name: 'edit', description: 'Edit file with diff patches', group: 'filesystem', permission: 'standard' },
-        { name: 'web_search', description: 'Search the web via Brave API', group: 'web', permission: 'standard' },
-        { name: 'web_fetch', description: 'Fetch and extract web page content', group: 'web', permission: 'standard' },
-        { name: 'sessions_list', description: 'List all active sessions', group: 'runtime', permission: 'standard' },
-        { name: 'sessions_history', description: 'Get session message history', group: 'runtime', permission: 'standard' },
-        { name: 'sessions_send', description: 'Send a message to another session', group: 'runtime', permission: 'standard' },
-        { name: 'session_status', description: 'Get current session status', group: 'runtime', permission: 'standard' },
-        { name: 'agents_list', description: 'List configured agents', group: 'runtime', permission: 'standard' },
-        { name: 'create_skill', description: 'Create a new skill file', group: 'runtime', permission: 'elevated' },
-      ]);
+      setError(null);
+    } catch (e) {
+      setTools([]);
+      setError((e as Error).message || 'This gateway does not expose a tool catalog yet.');
     } finally {
       setLoading(false);
     }
-  }, [client]);
+  }, [client, state]);
 
   useEffect(() => { fetchTools(); }, [fetchTools]);
 
@@ -104,6 +96,17 @@ export default function ToolsPage() {
       <div className="flex-1 flex items-center justify-center">
         <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
       </div>
+    );
+  }
+
+  if (error && tools.length === 0) {
+    return (
+      <FeatureState
+        icon={<Wrench className="h-6 w-6" />}
+        title="Tool Catalog Unavailable"
+        description={error}
+        action={<Button variant="outline" size="sm" onClick={fetchTools}>Retry</Button>}
+      />
     );
   }
 

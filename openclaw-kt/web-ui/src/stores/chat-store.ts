@@ -160,12 +160,13 @@ export const useChatStore = create<ChatStore>((set, get) => ({
 
   respondToApproval: async (client: GatewayClient, requestId: string, approved: boolean) => {
     try {
-      await client.request('exec.approval.respond', { requestId, approved });
+      await client.request('exec.approval.resolve', { requestId, approved });
     } catch { /* ignore */ }
     set((state) => {
+      const nextStatus: ApprovalRequest['status'] = approved ? 'approved' : 'denied';
       const messages = state.messages.map((m) =>
         m.approval?.requestId === requestId
-          ? { ...m, approval: { ...m.approval!, status: (approved ? 'approved' : 'denied') as const } }
+          ? { ...m, approval: { ...m.approval!, status: nextStatus } }
           : m
       );
       const pendingApprovals = messages.filter((m) => m.approval?.status === 'pending').length;

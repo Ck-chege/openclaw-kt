@@ -11,8 +11,8 @@ interface MarkdownContentProps {
 const components: Components = {
   code({ className, children, ...props }) {
     const match = /language-(\w+)/.exec(className || '');
-    const isBlock = (props as Record<string, unknown>).node?.position?.start.column === 1 ||
-      String(children).includes('\n');
+    const node = (props as { node?: { position?: { start?: { column?: number } } } }).node;
+    const isBlock = node?.position?.start?.column === 1 || String(children).includes('\n');
 
     if (match || isBlock) {
       return (

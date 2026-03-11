@@ -14,13 +14,13 @@ export default defineConfig({
     allowedHosts: ['yvonne-nonnihilistic-vascularly.ngrok-free.dev'],
     proxy: {
       '/ws': {
-        target: 'ws://127.0.0.1:18790',
+        target: 'ws://127.0.0.1:18789',
         ws: true,
         rewriteWsOrigin: true,
         rewrite: () => '/',
       },
       '/gw': {
-        target: 'ws://127.0.0.1:18790',
+        target: 'ws://127.0.0.1:18789',
         ws: true,
         rewriteWsOrigin: true,
         changeOrigin: true,

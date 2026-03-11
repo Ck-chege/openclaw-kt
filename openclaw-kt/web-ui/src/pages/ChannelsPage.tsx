@@ -2,14 +2,13 @@ import { useState, useEffect, useCallback } from 'react';
 import { useConnectionStore } from '@/stores/connection-store';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
-import { ScrollArea } from '@/components/ui/scroll-area';
+import { FeatureState } from '@/components/FeatureState';
 import {
   Radio,
   MessageSquare,
   RefreshCw,
   Loader2,
   Circle,
-  ExternalLink,
   Clock,
   Hash,
   Globe,
@@ -75,29 +74,32 @@ interface ChannelInfo {
 }
 
 export default function ChannelsPage() {
-  const { client } = useConnectionStore();
+  const { client, state } = useConnectionStore();
   const [channels, setChannels] = useState<ChannelInfo[]>([]);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
   const [selectedChannel, setSelectedChannel] = useState<ChannelInfo | null>(null);
 
   const fetchChannels = useCallback(async () => {
-    if (!client) return;
+    if (!client || state !== 'connected') {
+      setChannels([]);
+      setLoading(false);
+      setError('Connect to the gateway to inspect channel status.');
+      return;
+    }
     setLoading(true);
     try {
-      const res = await client.request('channels.list');
+      const res = await client.request('channels.status');
       setChannels((res.channels || []) as ChannelInfo[]);
-    } catch {
-      // Fallback: show known channel types as unconfigured
-      setChannels([
-        { id: 'webchat', status: 'connected' },
-        { id: 'telegram', status: 'unconfigured' },
-        { id: 'discord', status: 'unconfigured' },
-        { id: 'slack', status: 'unconfigured' },
-      ]);
+      setError(null);
+    } catch (e) {
+      setChannels([]);
+      setSelectedChannel(null);
+      setError((e as Error).message || 'This gateway does not expose channel status yet.');
     } finally {
       setLoading(false);
     }
-  }, [client]);
+  }, [client, state]);
 
   useEffect(() => { fetchChannels(); }, [fetchChannels]);
 
@@ -106,6 +108,17 @@ export default function ChannelsPage() {
       <div className="flex-1 flex items-center justify-center">
         <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
       </div>
+    );
+  }
+
+  if (error && channels.length === 0) {
+    return (
+      <FeatureState
+        icon={<Radio className="h-6 w-6" />}
+        title="Channels Unavailable"
+        description={error}
+        action={<Button variant="outline" size="sm" onClick={fetchChannels}>Retry</Button>}
+      />
     );
   }
 
@@ -135,7 +148,14 @@ export default function ChannelsPage() {
         </Button>
       </div>
 
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
+      {channels.length === 0 ? (
+        <FeatureState
+          icon={<Radio className="h-6 w-6" />}
+          title="No Channel Data"
+          description="The gateway returned no channel status entries."
+        />
+      ) : (
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
         {channels.map((channel) => {
           const platform = getPlatformConfig(channel.id);
           return (
@@ -172,7 +192,8 @@ export default function ChannelsPage() {
             </button>
           );
         })}
-      </div>
+        </div>
+      )}
     </div>
   );
 }

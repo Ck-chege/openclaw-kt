@@ -18,11 +18,6 @@ interface MessageBubbleProps {
 
 export const MessageBubble = memo(function MessageBubble({ message }: MessageBubbleProps) {
   const isUser = message.role === 'user';
-
-  // Approval messages
-  if (message.role === 'approval' && message.approval) {
-    return <ApprovalBubble message={message} />;
-  }
   const [copied, setCopied] = useState(false);
 
   const handleCopy = useCallback(() => {
@@ -30,6 +25,11 @@ export const MessageBubble = memo(function MessageBubble({ message }: MessageBub
     setCopied(true);
     setTimeout(() => setCopied(false), 2000);
   }, [message.content]);
+
+  // Approval messages
+  if (message.role === 'approval' && message.approval) {
+    return <ApprovalBubble message={message} />;
+  }
 
   return (
     <div className={`group flex gap-3 ${isUser ? 'justify-end' : 'justify-start'}`}>

@@ -22,7 +22,6 @@ import {
   Moon,
   Monitor,
   LogOut,
-  Wifi,
 } from 'lucide-react';
 
 export function CommandPalette() {
