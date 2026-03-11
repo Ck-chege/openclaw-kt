@@ -1,8 +1,8 @@
-# OpenClaw KT
+# KClaw
 
 Kotlin-native rebuild of [OpenClaw](https://github.com/openclaw/openclaw) — an open-source personal AI assistant platform. Built with **Ktor** (server) and **Koog** (JetBrains AI agent framework).
 
-This is not a port — it reimagines OpenClaw's architecture using Kotlin's strengths: sealed classes for the wire protocol, coroutines for concurrency, Flow for streaming, and type-safe DSLs for configuration.
+This is not a port — it reimagines KClaw's architecture using Kotlin's strengths: sealed classes for the wire protocol, coroutines for concurrency, Flow for streaming, and type-safe DSLs for configuration.
 
 ## Requirements
 
@@ -23,9 +23,9 @@ This is not a port — it reimagines OpenClaw's architecture using Kotlin's stre
 
 ## Configuration
 
-Config file location: `~/.openclawk/openclaw.conf` (HOCON format).
+Config file location: `~/.kclaw/kclaw.conf` (HOCON format).
 
-> The `.openclawk` directory (with trailing `k`) is intentional — it prevents conflicts with the JS/Node.js OpenClaw installation on the same machine.
+> Runtime data now lives under `.kclaw`.
 
 ### Environment Variables
 
@@ -43,7 +43,7 @@ These can also be set in the config file under `secrets {}`.
 | `ws://127.0.0.1:18789/ws` | WebSocket (wire protocol) |
 | `http://127.0.0.1:18789/health` | Health check |
 
-Port and bind address are configurable in `openclaw.conf`:
+Port and bind address are configurable in `kclaw.conf`:
 
 ```hocon
 gateway {
@@ -55,7 +55,7 @@ gateway {
 ## Project Structure
 
 ```
-openclaw-kt/
+kclaw/
   app/             # Main entry point
   gateway-core/    # Ktor server, WebSocket wire protocol, config
   agent-engine/    # Koog AI agent wrappers, workspace loader, prompt assembly

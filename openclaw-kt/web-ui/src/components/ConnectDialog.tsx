@@ -24,7 +24,7 @@ export function ConnectDialog() {
             <Wifi className="h-6 w-6 text-primary" />
           </div>
           <div className="text-center">
-            <h2 className="text-xl font-semibold">OpenClaw</h2>
+            <h2 className="text-xl font-semibold">KClaw</h2>
             <p className="text-sm text-muted-foreground mt-1">
               Connect to your gateway to get started.
             </p>

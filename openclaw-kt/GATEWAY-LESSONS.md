@@ -1,6 +1,6 @@
 # Gateway Lessons: JS → Kotlin
 
-> Comparing the production JS gateway (`src/gateway/`) against `openclaw-kt/gateway-core/`  
+> Comparing the production JS gateway (`src/gateway/`) against `kclaw/gateway-core/`  
 > to surface concrete gaps, design patterns worth copying, and Kotlin-specific improvements.
 
 ---

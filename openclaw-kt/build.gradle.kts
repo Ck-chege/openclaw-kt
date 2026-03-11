@@ -7,7 +7,7 @@ plugins {
 }
 
 allprojects {
-    group = "com.openclaw"
+    group = "com.kclaw"
     version = "0.1.0-SNAPSHOT"
 }
 

@@ -58,7 +58,7 @@ export function Sidebar() {
     <div className="w-72 border-r border-border flex flex-col bg-card transition-[width] duration-200 ease-in-out">
       {/* Header */}
       <div className="flex items-center justify-between px-3 py-3">
-        <h1 className="text-sm font-semibold tracking-tight">OpenClaw</h1>
+        <h1 className="text-sm font-semibold tracking-tight">KClaw</h1>
         <div className="flex items-center gap-1">
           <ThemeToggle />
           <Button

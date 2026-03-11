@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Quick WebSocket test client for the OpenClaw gateway agent run."""
+"""Quick WebSocket test client for the KClaw gateway agent run."""
 
 import asyncio
 import json

@@ -44,7 +44,7 @@ export const MessageBubble = memo(function MessageBubble({ message }: MessageBub
       <div className={cn('flex min-w-0 flex-col gap-2', isUser ? 'items-end' : 'items-start')}>
         <div className="flex flex-wrap items-center gap-2 px-1">
           <span className="text-[11px] font-semibold uppercase tracking-[0.18em] text-muted-foreground">
-            {isUser ? 'You' : 'OpenClaw'}
+            {isUser ? 'You' : 'KClaw'}
           </span>
           <span className="text-[11px] text-muted-foreground">{formatTimestamp(message.timestamp)}</span>
           {!isUser && message.isStreaming && (

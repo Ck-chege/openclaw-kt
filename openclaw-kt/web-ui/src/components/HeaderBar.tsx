@@ -53,7 +53,7 @@ export function HeaderBar() {
   const navigate = useNavigate();
   const { disconnect, state } = useConnectionStore();
   const { pendingApprovals } = useChatStore();
-  const title = routeTitles[location.pathname] || 'OpenClaw';
+  const title = routeTitles[location.pathname] || 'KClaw';
 
   return (
     <header className="flex items-center justify-between h-12 px-4 border-b border-border bg-background flex-shrink-0">

@@ -66,7 +66,7 @@ export function SetupWizard() {
       await client.request('setup.complete', {});
 
       clearSetupRequired();
-      notify.success('Setup complete! Welcome to OpenClaw.');
+      notify.success('Setup complete! Welcome to KClaw.');
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Setup failed');
     } finally {
@@ -162,7 +162,7 @@ function WelcomeStep() {
       <div className="h-14 w-14 rounded-full bg-primary/10 flex items-center justify-center">
         <Settings className="h-7 w-7 text-primary" />
       </div>
-      <h2 className="text-2xl font-semibold">Welcome to OpenClaw</h2>
+      <h2 className="text-2xl font-semibold">Welcome to KClaw</h2>
       <p className="text-muted-foreground leading-relaxed">
         Your personal AI assistant gateway needs a quick setup before you can start.
         This wizard will help you configure your API keys and default model.

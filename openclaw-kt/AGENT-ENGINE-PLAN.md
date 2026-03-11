@@ -8,27 +8,27 @@
 
 ## Fix 1 — `AgentEngine.kt` — Implement the facade
 
-`AgentEngine.kt` is currently just `package com.openclaw.agent`. `Main.kt` manually wires
+`AgentEngine.kt` is currently just `package com.kclaw.agent`. `Main.kt` manually wires
 ModelRegistry → AgentRuntime → CompactionTrigger → RunManager → AgentResolver inline.
 
 Create an `AgentEngine` class that encapsulates all of this as a single cohesive component,
 leaving `Main.kt` to just construct and start it.
 
 ```kotlin
-package com.openclaw.agent
+package com.kclaw.agent
 
 import ai.koog.agents.core.tools.ToolRegistry
-import com.openclaw.agent.isolation.AgentResolver
-import com.openclaw.agent.model.ModelRegistry
-import com.openclaw.agent.prompt.ToolDescription
-import com.openclaw.agent.runtime.*
-import com.openclaw.agent.workspace.WorkspaceLoader
-import com.openclaw.gateway.config.GatewayConfig
-import com.openclaw.protocol.dto.AgentEvent
-import com.openclaw.protocol.identifiers.ChatType
-import com.openclaw.protocol.identifiers.ModelId
-import com.openclaw.protocol.identifiers.SessionKey
-import com.openclaw.session.SessionStore
+import com.kclaw.agent.isolation.AgentResolver
+import com.kclaw.agent.model.ModelRegistry
+import com.kclaw.agent.prompt.ToolDescription
+import com.kclaw.agent.runtime.*
+import com.kclaw.agent.workspace.WorkspaceLoader
+import com.kclaw.gateway.config.GatewayConfig
+import com.kclaw.protocol.dto.AgentEvent
+import com.kclaw.protocol.identifiers.ChatType
+import com.kclaw.protocol.identifiers.ModelId
+import com.kclaw.protocol.identifiers.SessionKey
+import com.kclaw.session.SessionStore
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.flow.Flow
 

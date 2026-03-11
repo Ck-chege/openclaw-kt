@@ -1,4 +1,4 @@
-rootProject.name = "openclaw-kt"
+rootProject.name = "kclaw"
 
 pluginManagement {
     repositories {

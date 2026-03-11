@@ -167,7 +167,7 @@ function SidebarContent({ isExpanded, pinned, onTogglePin, isOnChat, onNavigate,
       )}>
         {isExpanded ? (
           <>
-            <span className="text-sm font-semibold text-sidebar-foreground tracking-tight">OpenClaw</span>
+            <span className="text-sm font-semibold text-sidebar-foreground tracking-tight">KClaw</span>
             {mobileClose || (
               <Button
                 variant="ghost"

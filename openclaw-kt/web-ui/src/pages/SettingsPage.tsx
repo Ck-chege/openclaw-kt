@@ -114,7 +114,7 @@ function GeneralTab() {
 
   return (
     <div className="max-w-lg space-y-6">
-      <SettingsSection title="Gateway Connection" description="Configure the WebSocket connection to your OpenClaw gateway.">
+      <SettingsSection title="Gateway Connection" description="Configure the WebSocket connection to your KClaw gateway.">
         <div className="space-y-3">
           <div>
             <label className="text-xs font-medium text-muted-foreground mb-1.5 block">Gateway URL</label>
@@ -647,7 +647,7 @@ function AboutTab() {
 
   return (
     <div className="max-w-lg space-y-6">
-      <SettingsSection title="OpenClaw" description="Open-source personal AI assistant platform.">
+      <SettingsSection title="KClaw" description="Open-source personal AI assistant platform.">
         <div className="space-y-2 text-sm">
           <div className="flex justify-between">
             <span className="text-muted-foreground">Version</span>

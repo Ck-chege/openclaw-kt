@@ -7,7 +7,7 @@ plugins {
 }
 
 application {
-    mainClass.set("com.openclaw.MainKt")
+    mainClass.set("com.kclaw.MainKt")
 }
 
 dependencies {
