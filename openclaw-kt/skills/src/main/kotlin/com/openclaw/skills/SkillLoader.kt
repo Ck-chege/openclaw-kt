@@ -86,28 +86,14 @@ class SkillLoader(
     }
 
     private fun buildSkillLine(skill: SkillMeta): String = buildString {
-        append("  <skill name=\"${escapeXmlAttr(skill.name)}\"")
+        appendLine("  <skill>")
+        appendLine("    <name>${escapeXml(skill.name)}</name>")
         if (skill.description.isNotEmpty()) {
-            append(" description=\"${escapeXmlAttr(skill.description)}\"")
+            appendLine("    <description>${escapeXml(skill.description)}</description>")
         }
-        if (skill.emoji != null) {
-            append(" emoji=\"${escapeXmlAttr(skill.emoji!!)}\"")
-        }
-        append(" path=\"${escapeXmlAttr(skill.path.toString())}\"")
-        append(" source=\"${skill.source.name.lowercase()}\"")
-        if (skill.resources.hasScripts) {
-            append(" has_scripts=\"true\"")
-            append(" scripts=\"${escapeXmlAttr(skill.resources.scripts.joinToString(","))}\"")
-        }
-        if (skill.resources.hasReferences) {
-            append(" has_references=\"true\"")
-            append(" references=\"${escapeXmlAttr(skill.resources.references.joinToString(","))}\"")
-        }
-        if (skill.resources.hasAssets) {
-            append(" has_assets=\"true\"")
-            append(" assets=\"${escapeXmlAttr(skill.resources.assets.joinToString(","))}\"")
-        }
-        append(" />")
+        append("    <location>${escapeXml(skill.path.toString())}</location>")
+        appendLine()
+        append("  </skill>")
     }
 
     /**
@@ -130,16 +116,8 @@ class SkillLoader(
      * The instruction and always-on bodies are fixed overhead not subject to the char limit.
      */
     private fun buildRawXml(skills: List<SkillMeta>): String {
-        val hasNonAlways = skills.any { !it.always }
         return buildString {
             append(buildSkillsXmlBlock(skills))
-
-            // Instruct the agent to use the use_skill tool for non-always skills
-            if (hasNonAlways) {
-                appendLine()
-                appendLine()
-                append(USE_SKILL_INSTRUCTION)
-            }
 
             // Append always-on skill bodies
             val alwaysOn = skills.filter { it.always && it.body.isNotBlank() }
@@ -431,5 +409,13 @@ class SkillLoader(
             .replace("<", "&lt;")
             .replace(">", "&gt;")
             .replace("'", "&apos;")
+
+        /**
+         * Escape special characters for XML element text content.
+         */
+        fun escapeXml(value: String): String = value
+            .replace("&", "&amp;")
+            .replace("<", "&lt;")
+            .replace(">", "&gt;")
     }
 }
