@@ -49,6 +49,7 @@ import com.openclaw.memory.rpc.registerMemoryHandlers
 import com.openclaw.agent.workspace.WorkspaceBootstrap
 import com.openclaw.skills.SkillLoader
 import com.openclaw.skills.SkillsWatcherService
+import com.openclaw.rpc.registerOperatorHandlers
 import io.github.oshai.kotlinlogging.KotlinLogging
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -198,13 +199,19 @@ fun main() {
 
     val coreTools = listOf(ReadTool, WriteTool, EditTool, ExecTool, ProcessTool)
 
+    // Skills system
+    val skillLoader = SkillLoader()
+    val skillsWatcher = SkillsWatcherService(skillLoader, appScope)
+    logger.info { "Skills system initialized" }
+
     // Native tools (session introspection)
     val nativeToolsProvider = NativeToolsProvider(
         sessionStore = sessionStore,
         runManager = runManager,
         agentsConfig = { configManager.config.value.agents },
         currentSessionKey = { SessionKey("main:main:*:main") }, // default; overridden per-run
-        workspacePath = { workspacePath }
+        workspacePath = { workspacePath },
+        skillLoader = skillLoader
     )
     val nativeTools = nativeToolsProvider.allTools()
 
@@ -244,11 +251,6 @@ fun main() {
     val toolPolicyPipeline = ToolPolicyPipeline()
     val toolRegistryFactory = ToolRegistryFactory(toolPolicyPipeline, allTools)
     logger.info { "Tool system initialized: ${allTools.size} tools (${coreTools.size} core, ${nativeTools.size} native, ${mcpTools.size} MCP, ${webTools.size} web, ${memoryTools.size} memory)" }
-
-    // Skills system
-    val skillLoader = SkillLoader()
-    val skillsWatcher = SkillsWatcherService(skillLoader, appScope)
-    logger.info { "Skills system initialized" }
 
     // Config writer for setup handlers
     val configWriter = ConfigWriter(configPath)
@@ -291,6 +293,17 @@ fun main() {
     )
     registerSessionHandlers(gateway.router, sessionStore)
     registerMemoryHandlers(gateway.router, memoryManager)
+    registerOperatorHandlers(
+        router = gateway.router,
+        gatewayConfig = { configManager.config.value },
+        agentResolver = agentResolver,
+        sessionStore = sessionStore,
+        allTools = { allTools },
+        toolPolicyPipeline = toolPolicyPipeline,
+        skillLoader = skillLoader,
+        isSessionRunning = { key -> runManager.isRunActive(key) },
+        logsPath = traceOutputPath
+    )
     registerSetupHandlers(
         router = gateway.router,
         configManager = configManager,
