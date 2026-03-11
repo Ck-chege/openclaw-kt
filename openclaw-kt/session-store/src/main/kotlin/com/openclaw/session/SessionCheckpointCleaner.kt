@@ -10,3 +10,4 @@ package com.openclaw.session
 fun interface SessionCheckpointCleaner {
     suspend fun deleteCheckpoints(agentId: String)
 }
+
