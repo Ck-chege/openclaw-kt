@@ -237,15 +237,18 @@ class SkillLoaderTest {
             val gate = SkillGate(FakeEnvironmentChecker())
             val scanner = SkillScanner(gate)
             val loader = SkillLoader(scanner)
+            // fingerprintCheckIntervalMs=0 → fingerprint safety-net runs every call
+            // (simulates watcher lag: no refresh() called, but disk changed)
+            val config = SkillsConfig(load = SkillsLoadConfig(fingerprintCheckIntervalMs = 0L))
 
-            val snapshot1 = loader.buildSnapshot(workspace)
+            val snapshot1 = loader.buildSnapshot(workspace, config)
             snapshot1.skills.size shouldBe 1
 
             // Simulate a skill being installed (e.g., by exec tool) after snapshot was built
             Thread.sleep(50) // ensure mtime granularity
             createSkillFile(skillsDir, "deploy", "deploy", "Deploy apps")
 
-            val snapshot2 = loader.buildSnapshot(workspace)
+            val snapshot2 = loader.buildSnapshot(workspace, config)
             snapshot2.skills.size shouldBe 2
             snapshot2.promptXml shouldContain "<name>deploy</name>"
         }
@@ -259,14 +262,16 @@ class SkillLoaderTest {
             val gate = SkillGate(FakeEnvironmentChecker())
             val scanner = SkillScanner(gate)
             val loader = SkillLoader(scanner)
+            // fingerprintCheckIntervalMs=0 → fingerprint safety-net runs every call
+            val config = SkillsConfig(load = SkillsLoadConfig(fingerprintCheckIntervalMs = 0L))
 
-            val snapshot1 = loader.buildSnapshot(workspace)
+            val snapshot1 = loader.buildSnapshot(workspace, config)
             snapshot1.promptXml shouldContain "<description>Find things</description>"
 
             Thread.sleep(50)
             skillFile.writeText("---\nname: search\ndescription: Updated search\n---\nNew body")
 
-            val snapshot2 = loader.buildSnapshot(workspace)
+            val snapshot2 = loader.buildSnapshot(workspace, config)
             snapshot2.promptXml shouldContain "<description>Updated search</description>"
         }
 
