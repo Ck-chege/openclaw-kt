@@ -7,6 +7,8 @@ object SkillEnvironment {
 
     fun get(name: String): String? = activeOverrides[name]
 
+    fun snapshot(): Map<String, String> = activeOverrides.toMap()
+
     fun apply(overrides: Map<String, String>): () -> Unit {
         if (overrides.isEmpty()) return {}
         val previous = mutableMapOf<String, String?>()

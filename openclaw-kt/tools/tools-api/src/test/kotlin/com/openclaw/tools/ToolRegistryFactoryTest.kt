@@ -46,21 +46,37 @@ class ToolRegistryFactoryTest {
         override suspend fun execute(args: Args): String = ""
     }
 
+    private object StubCreateSkill : SimpleTool<StubCreateSkill.Args>(
+        argsSerializer = Args.serializer(), name = "create_skill", description = "Default create skill"
+    ) {
+        @Serializable
+        data class Args(val name: String = "")
+        override suspend fun execute(args: Args): String = "default"
+    }
+
+    private object StubDynamicCreateSkill : SimpleTool<StubDynamicCreateSkill.Args>(
+        argsSerializer = Args.serializer(), name = "create_skill", description = "Dynamic create skill"
+    ) {
+        @Serializable
+        data class Args(val name: String = "")
+        override suspend fun execute(args: Args): String = "dynamic"
+    }
+
     private val defaultCaller = CallerContext()
-    private val allTools = listOf(StubRead, StubWrite, StubExec, StubSessionsSend)
+    private val allTools = listOf(StubRead, StubWrite, StubExec, StubSessionsSend, StubCreateSkill)
     private val factory = ToolRegistryFactory(ToolPolicyPipeline(), allTools)
 
     @Test
     fun `builds registry with all tools when profile is full and no restrictions`() {
         val registry = factory.buildRegistry(ToolsConfig(), callerContext = defaultCaller)
-        registry.tools.map { it.name }.shouldContainExactlyInAnyOrder("read", "write", "exec")
+        registry.tools.map { it.name }.shouldContainExactlyInAnyOrder("read", "write", "exec", "create_skill")
     }
 
     @Test
     fun `filters out denied tools`() {
         val config = ToolsConfig(deny = listOf("exec"))
         val registry = factory.buildRegistry(config, callerContext = defaultCaller)
-        registry.tools.map { it.name }.shouldContainExactlyInAnyOrder("read", "write")
+        registry.tools.map { it.name }.shouldContainExactlyInAnyOrder("read", "write", "create_skill")
     }
 
     @Test
@@ -93,14 +109,14 @@ class ToolRegistryFactoryTest {
             callerContext = CallerContext(provider = "openai")
         )
 
-        registry.tools.map { it.name }.shouldContainExactlyInAnyOrder("read", "write")
+        registry.tools.map { it.name }.shouldContainExactlyInAnyOrder("read", "write", "create_skill")
     }
 
     @Test
     fun `owner-only tools are excluded for non-owner callers`() {
         val registry = factory.buildRegistry(ToolsConfig(), callerContext = CallerContext(isOwner = false))
 
-        registry.tools.map { it.name }.shouldContainExactlyInAnyOrder("read", "write", "exec")
+        registry.tools.map { it.name }.shouldContainExactlyInAnyOrder("read", "write", "exec", "create_skill")
     }
 
     @Test
@@ -108,20 +124,32 @@ class ToolRegistryFactoryTest {
         val registry = factory.buildRegistry(ToolsConfig(), callerContext = CallerContext(isOwner = true))
 
         registry.tools.map { it.name }
-            .shouldContainExactlyInAnyOrder("read", "write", "exec", "sessions_send")
+            .shouldContainExactlyInAnyOrder("read", "write", "exec", "sessions_send", "create_skill")
     }
 
     @Test
     fun `buildDescriptions excludes owner-only tools for non-owner callers`() {
         val descriptions = factory.buildDescriptions(ToolsConfig(), callerContext = CallerContext(isOwner = false))
 
-        descriptions.map { it.first }.shouldContainExactlyInAnyOrder("read", "write", "exec")
+        descriptions.map { it.first }.shouldContainExactlyInAnyOrder("read", "write", "exec", "create_skill")
     }
 
     @Test
     fun `buildDescriptions includes owner-only tools for owner callers`() {
         val descriptions = factory.buildDescriptions(ToolsConfig(), callerContext = CallerContext(isOwner = true))
 
-        descriptions.map { it.first }.shouldContainExactlyInAnyOrder("read", "write", "exec", "sessions_send")
+        descriptions.map { it.first }.shouldContainExactlyInAnyOrder("read", "write", "exec", "sessions_send", "create_skill")
+    }
+
+    @Test
+    fun `extra tools override same-named base tools`() {
+        val registry = factory.buildRegistry(
+            ToolsConfig(),
+            callerContext = defaultCaller,
+            extraTools = listOf(StubDynamicCreateSkill)
+        )
+
+        registry.tools.count { it.name == "create_skill" } shouldBe 1
+        registry.tools.first { it.name == "create_skill" }.descriptor.description shouldBe "Dynamic create skill"
     }
 }

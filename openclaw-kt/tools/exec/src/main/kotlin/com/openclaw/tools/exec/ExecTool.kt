@@ -2,6 +2,7 @@ package com.openclaw.tools.exec
 
 import ai.koog.agents.core.tools.SimpleTool
 import ai.koog.agents.core.tools.annotations.LLMDescription
+import com.openclaw.skills.SkillEnvironment
 import com.openclaw.tools.WorkspaceBoundary
 import kotlinx.serialization.Serializable
 import java.nio.file.Path
@@ -67,6 +68,7 @@ object ExecTool : SimpleTool<ExecTool.Args>(
         }
         processBuilder.directory(workDir)
         processBuilder.redirectErrorStream(true)
+        processBuilder.environment().putAll(SkillEnvironment.snapshot())
 
         val process = try {
             processBuilder.start()

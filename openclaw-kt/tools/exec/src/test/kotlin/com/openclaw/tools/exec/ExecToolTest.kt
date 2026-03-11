@@ -1,5 +1,6 @@
 package com.openclaw.tools.exec
 
+import com.openclaw.skills.SkillEnvironment
 import io.kotest.matchers.shouldBe
 import io.kotest.matchers.string.shouldContain
 import kotlinx.coroutines.test.runTest
@@ -44,6 +45,18 @@ class ExecToolTest {
             val result = ExecTool.execute(ExecTool.Args(command = "pwd", cwd = "mydir"))
             result shouldContain "mydir"
             result shouldContain "Exit code: 0"
+        }
+
+        @Test
+        fun `inherits active skill environment overrides`() = runTest {
+            val cleanup = SkillEnvironment.apply(mapOf("SKILL_TEST_TOKEN" to "runtime-value"))
+            try {
+                val result = ExecTool.execute(ExecTool.Args(command = "printf '%s' \"\$SKILL_TEST_TOKEN\""))
+                result shouldContain "runtime-value"
+                result shouldContain "Exit code: 0"
+            } finally {
+                cleanup()
+            }
         }
 
         @Test

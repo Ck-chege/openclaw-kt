@@ -29,9 +29,10 @@ class ToolRegistryFactory(
     fun buildRegistry(
         toolsConfig: ToolsConfig,
         agentToolOverrides: AgentToolOverrides? = null,
-        callerContext: CallerContext
+        callerContext: CallerContext,
+        extraTools: List<Tool<*, *>> = emptyList()
     ): ToolRegistry {
-        val allowedTools = filterAllowedTools(toolsConfig, agentToolOverrides, callerContext)
+        val allowedTools = filterAllowedTools(toolsConfig, agentToolOverrides, callerContext, extraTools)
 
         if (allowedTools.isEmpty()) {
             return ToolRegistry.EMPTY
@@ -51,18 +52,24 @@ class ToolRegistryFactory(
     fun buildDescriptions(
         toolsConfig: ToolsConfig,
         agentToolOverrides: AgentToolOverrides? = null,
-        callerContext: CallerContext
+        callerContext: CallerContext,
+        extraTools: List<Tool<*, *>> = emptyList()
     ): List<Pair<String, String>> {
-        return filterAllowedTools(toolsConfig, agentToolOverrides, callerContext)
+        return filterAllowedTools(toolsConfig, agentToolOverrides, callerContext, extraTools)
             .map { it.name to it.descriptor.description }
     }
 
     private fun filterAllowedTools(
         toolsConfig: ToolsConfig,
         agentToolOverrides: AgentToolOverrides?,
-        callerContext: CallerContext
+        callerContext: CallerContext,
+        extraTools: List<Tool<*, *>> = emptyList()
     ): List<Tool<*, *>> {
-        val allToolNames = allTools.map { it.name }.toSet()
+        val availableTools = buildList {
+            addAll(allTools)
+            addAll(extraTools)
+        }
+        val allToolNames = availableTools.map { it.name }.toSet()
         val allowedNames = policyPipeline.filterAllowed(
             allToolNames, toolsConfig, agentToolOverrides, callerContext
         )
@@ -72,7 +79,13 @@ class ToolRegistryFactory(
             return emptyList()
         }
 
-        val allowedTools = allTools.filter { it.name in allowedNames }
+        val allowedTools = LinkedHashMap<String, Tool<*, *>>().apply {
+            availableTools.forEach { tool ->
+                if (tool.name in allowedNames) {
+                    this[tool.name] = tool
+                }
+            }
+        }.values.toList()
         logger.info { "Filtered tools for agent=${callerContext.agentId}: ${allowedTools.map { it.name }}" }
         return allowedTools
     }

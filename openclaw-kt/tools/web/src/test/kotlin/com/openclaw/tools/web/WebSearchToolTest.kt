@@ -1,5 +1,6 @@
 package com.openclaw.tools.web
 
+import com.openclaw.skills.SkillEnvironment
 import io.kotest.matchers.shouldBe
 import io.kotest.matchers.string.shouldContain
 import io.kotest.matchers.string.shouldNotContain
@@ -63,6 +64,16 @@ class WebSearchToolTest {
             WebSearchTool.apiKeyOverride = "test-key-123"
             WebSearchTool.isAvailable() shouldBe true
         }
+
+        @Test
+        fun `isAvailable returns true when skill runtime provides API key`() {
+            val cleanup = SkillEnvironment.apply(mapOf("BRAVE_API_KEY" to "skill-key"))
+            try {
+                WebSearchTool.isAvailable() shouldBe true
+            } finally {
+                cleanup()
+            }
+        }
     }
 
     @Nested
@@ -92,6 +103,25 @@ class WebSearchToolTest {
             val result = WebSearchTool.execute(WebSearchTool.Args(query = "test"))
             result shouldContain "Error: BRAVE_API_KEY"
             result shouldContain "not set"
+        }
+
+        @Test
+        fun `execute uses skill runtime API key when override is absent`() = runTest {
+            val cleanup = SkillEnvironment.apply(mapOf("BRAVE_API_KEY" to "skill-key"))
+            try {
+                WebSearchTool.httpClientOverride = HttpClient(MockEngine { request ->
+                    request.headers["X-Subscription-Token"] shouldBe "skill-key"
+                    respond(
+                        content = sampleSearchResponse,
+                        headers = headersOf(HttpHeaders.ContentType, "application/json")
+                    )
+                })
+
+                val result = WebSearchTool.execute(WebSearchTool.Args(query = "kotlin"))
+                result shouldContain "Kotlin Coroutines Guide"
+            } finally {
+                cleanup()
+            }
         }
 
         @Test

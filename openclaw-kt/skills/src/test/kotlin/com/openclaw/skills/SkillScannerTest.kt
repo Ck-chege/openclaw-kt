@@ -277,6 +277,30 @@ class SkillScannerTest {
             dirs shouldHaveSize 3
             dirs[2] shouldBe bundled
         }
+
+        @Test
+        fun `default sources keep workspace first so it wins precedence`() {
+            val workspace = Path.of("/home/user/ws")
+            val bundled = Path.of("/opt/openclaw/skills")
+            val plugin = Path.of("/opt/plugin/skills")
+
+            val sources = SkillScanner.defaultSources(
+                workspacePath = workspace,
+                config = SkillsConfig(load = SkillsLoadConfig(extraDirs = listOf("/extra/skills"))),
+                bundledSkillsPath = bundled,
+                pluginSkillsPaths = listOf(plugin)
+            )
+
+            sources.map { it.source } shouldBe listOf(
+                SkillSource.WORKSPACE,
+                SkillSource.AGENTS_PROJECT,
+                SkillSource.AGENTS_PERSONAL,
+                SkillSource.USER,
+                SkillSource.PLUGIN,
+                SkillSource.BUNDLED,
+                SkillSource.EXTRA
+            )
+        }
     }
 
     @Nested

@@ -6,6 +6,7 @@ plugins {
 dependencies {
     implementation(project(":protocol"))
     implementation(project(":tools:tools-api"))
+    implementation(project(":skills"))
 
     implementation(libs.kotlinx.coroutines.core)
     implementation(libs.kotlinx.serialization.json)

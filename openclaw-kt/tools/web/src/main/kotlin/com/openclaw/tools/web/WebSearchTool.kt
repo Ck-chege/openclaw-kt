@@ -2,6 +2,7 @@ package com.openclaw.tools.web
 
 import ai.koog.agents.core.tools.SimpleTool
 import ai.koog.agents.core.tools.annotations.LLMDescription
+import com.openclaw.skills.SkillEnvironment
 import io.github.oshai.kotlinlogging.KotlinLogging
 import io.ktor.client.request.*
 import io.ktor.client.statement.*
@@ -59,7 +60,9 @@ object WebSearchTool : SimpleTool<WebSearchTool.Args>(
         getApiKey() != null
 
     private fun getApiKey(): String? =
-        apiKeyOverride ?: System.getenv("BRAVE_API_KEY")?.takeIf { it.isNotBlank() }
+        apiKeyOverride
+            ?: SkillEnvironment.get("BRAVE_API_KEY")?.takeIf { it.isNotBlank() }
+            ?: System.getenv("BRAVE_API_KEY")?.takeIf { it.isNotBlank() }
 
     override suspend fun execute(args: Args): String {
         val apiKey = getApiKey()

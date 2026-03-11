@@ -3,6 +3,8 @@ package com.openclaw.agent.rpc
 import com.openclaw.agent.isolation.AgentResolver
 import com.openclaw.agent.prompt.ToolDescription
 import com.openclaw.agent.runtime.RunManager
+import com.openclaw.agent.tools.CreateSkillTool
+import com.openclaw.agent.tools.UseSkillTool
 import com.openclaw.gateway.auth.ClientRole
 import com.openclaw.gateway.auth.WsSession
 import com.openclaw.gateway.config.GatewayConfig
@@ -77,17 +79,25 @@ fun registerAgentHandlers(
 
         // Build per-agent tool registry using policy pipeline
         val currentToolsConfig = toolsConfig()
+        val dynamicSkillTools = buildList {
+            add(CreateSkillTool { resolved.workspace.workspacePath })
+            if (skillLoader != null) {
+                add(UseSkillTool(skillLoader) { resolved.workspace.workspacePath })
+            }
+        }
         val agentToolRegistry = toolRegistryFactory?.buildRegistry(
             currentToolsConfig,
             agentToolOverrides = resolved.toolOverrides,
-            callerContext = callerContext
+            callerContext = callerContext,
+            extraTools = dynamicSkillTools
         ) ?: ai.koog.agents.core.tools.ToolRegistry.EMPTY
 
         // Extract tool descriptions for system prompt injection (Zone 1)
         val toolDescs = toolRegistryFactory?.buildDescriptions(
             currentToolsConfig,
             agentToolOverrides = resolved.toolOverrides,
-            callerContext = callerContext
+            callerContext = callerContext,
+            extraTools = dynamicSkillTools
         )?.map { (name, desc) -> ToolDescription(name, desc) } ?: emptyList()
 
         // Build skills snapshot for this workspace

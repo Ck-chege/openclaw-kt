@@ -8,7 +8,7 @@ import {
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
 import { useDashboardStore } from '@/stores/dashboard-store';
-import { Send, Square, ChevronDown, Cpu } from 'lucide-react';
+import { ChevronDown, Cpu, Send, Square } from 'lucide-react';
 
 interface ChatInputProps {
   onSend: (text: string) => void;
@@ -17,17 +17,11 @@ interface ChatInputProps {
   disabled: boolean;
 }
 
-const SUGGESTED_PROMPTS = [
-  'What can you help me with?',
-  'Summarize the latest changes in my workspace',
-  'List my active sessions',
-  'What tools do you have access to?',
-];
-
 export function ChatInput({ onSend, onStop, isStreaming, disabled }: ChatInputProps) {
   const [text, setText] = useState('');
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const { models, selectedModelId, setSelectedModel } = useDashboardStore();
+  const activeModel = models.find((model) => model.id === selectedModelId) || models[0];
 
   useEffect(() => {
     if (!isStreaming && textareaRef.current) {
@@ -52,107 +46,95 @@ export function ChatInput({ onSend, onStop, isStreaming, disabled }: ChatInputPr
     }
   }, [handleSubmit, isStreaming, onStop]);
 
-  // Auto-resize textarea
   useEffect(() => {
     const el = textareaRef.current;
     if (el) {
       el.style.height = 'auto';
-      el.style.height = Math.min(el.scrollHeight, 200) + 'px';
+      el.style.height = `${Math.min(el.scrollHeight, 160)}px`;
     }
   }, [text]);
-
-  const showSuggestions = !disabled && !isStreaming && !text;
   const placeholder = disabled
-    ? (models.length === 0 ? 'No ready models configured' : 'Connecting...')
-    : 'Send a message...';
+    ? (models.length === 0 ? 'No ready models configured' : 'Connecting to the gateway...')
+    : 'Ask for a code change, review, or investigation...';
 
   return (
-    <div className="border-t border-border p-4 bg-background">
-      {/* Suggested prompts for empty state */}
-      {showSuggestions && (
-        <div className="max-w-3xl mx-auto mb-3 flex flex-wrap gap-2">
-          {SUGGESTED_PROMPTS.map((prompt) => (
-            <button
-              key={prompt}
-              onClick={() => onSend(prompt)}
-              className="text-xs px-3 py-1.5 rounded-full border border-border bg-muted/50 hover:bg-muted text-muted-foreground hover:text-foreground transition-colors"
-            >
-              {prompt}
-            </button>
-          ))}
-        </div>
-      )}
+    <div className="border-t border-border/60 bg-[linear-gradient(180deg,rgba(248,250,252,0.2)_0%,rgba(248,250,252,0.92)_18%,rgba(255,255,255,0.98)_100%)] px-3 pb-3 pt-4 dark:bg-[linear-gradient(180deg,rgba(10,14,19,0.2)_0%,rgba(10,14,19,0.94)_18%,rgba(7,10,15,0.98)_100%)] sm:px-4 sm:pb-4">
+      <div className="mx-auto max-w-4xl rounded-[24px] border border-border/70 bg-background/86 p-2.5 shadow-[0_18px_48px_-36px_rgba(15,23,42,0.5)] backdrop-blur-xl">
+        <div className="flex flex-col gap-3">
+          <div className="flex items-start gap-3">
+            <div className="flex-1 rounded-[20px] border border-border/60 bg-muted/30 px-4 py-2.5 transition-colors focus-within:border-primary/35 focus-within:bg-background/90">
+              <textarea
+                ref={textareaRef}
+                value={text}
+                onChange={(e) => setText(e.target.value)}
+                onKeyDown={handleKeyDown}
+                placeholder={placeholder}
+                disabled={disabled}
+                rows={1}
+                className="min-h-[52px] max-h-[160px] w-full resize-none bg-transparent text-[15px] leading-6 outline-none placeholder:text-muted-foreground disabled:opacity-50"
+              />
+            </div>
 
-      <div className="max-w-3xl mx-auto">
-        <div className="flex gap-2 items-end">
-          <div className="flex-1 relative">
-            <textarea
-              ref={textareaRef}
-              value={text}
-              onChange={(e) => setText(e.target.value)}
-              onKeyDown={handleKeyDown}
-              placeholder={placeholder}
-              disabled={disabled}
-              rows={1}
-              className="w-full resize-none bg-muted border border-input rounded-lg px-4 py-2.5 text-sm placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring disabled:opacity-50 min-h-[40px] max-h-[200px] pr-12"
-            />
+            {isStreaming ? (
+              <Button
+                onClick={onStop}
+                variant="destructive"
+                size="icon-lg"
+                className="h-11 w-11 rounded-2xl flex-shrink-0 self-end"
+              >
+                <Square className="h-4 w-4" />
+              </Button>
+            ) : (
+              <Button
+                onClick={handleSubmit}
+                disabled={disabled || !text.trim()}
+                size="icon-lg"
+                className="h-11 w-11 rounded-2xl flex-shrink-0 self-end"
+              >
+                <Send className="h-4 w-4" />
+              </Button>
+            )}
           </div>
 
-          {isStreaming ? (
-            <Button
-              onClick={onStop}
-              variant="destructive"
-              size="icon"
-              className="h-10 w-10 flex-shrink-0"
-            >
-              <Square className="h-4 w-4" />
-            </Button>
-          ) : (
-            <Button
-              onClick={handleSubmit}
-              disabled={disabled || !text.trim()}
-              size="icon"
-              className="h-10 w-10 flex-shrink-0"
-            >
-              <Send className="h-4 w-4" />
-            </Button>
-          )}
-        </div>
+          <div className="flex flex-col gap-2 rounded-[18px] border border-border/60 bg-muted/20 px-3 py-2 sm:flex-row sm:items-center sm:justify-between">
+            <div className="flex flex-wrap items-center gap-2">
+              {models.length > 0 ? (
+                <DropdownMenu>
+                  <DropdownMenuTrigger asChild>
+                    <button className="flex h-8 items-center gap-1.5 rounded-full border border-border/70 bg-background/85 px-3 text-xs text-muted-foreground transition-colors hover:text-foreground">
+                      <Cpu className="h-3.5 w-3.5" />
+                      <span>{activeModel?.displayName || models[0].displayName}</span>
+                      <ChevronDown className="h-3.5 w-3.5" />
+                    </button>
+                  </DropdownMenuTrigger>
+                  <DropdownMenuContent align="start">
+                    {models.map((model) => (
+                      <DropdownMenuItem
+                        key={model.id}
+                        onClick={() => setSelectedModel(model.id)}
+                        className="text-xs font-mono"
+                      >
+                        {model.displayName}
+                        {(selectedModelId === model.id || (!selectedModelId && model.id === models[0].id)) && (
+                          <Badge variant="outline" className="ml-2 h-4 text-[9px]">
+                            active
+                          </Badge>
+                        )}
+                      </DropdownMenuItem>
+                    ))}
+                  </DropdownMenuContent>
+                </DropdownMenu>
+              ) : (
+                <span className="text-[11px] text-muted-foreground">No ready models</span>
+              )}
 
-        {/* Bottom bar: model selector + hints */}
-        <div className="flex items-center justify-between mt-2 px-1">
-          {/* Model selector */}
-          {models.length > 0 ? (
-            <DropdownMenu>
-              <DropdownMenuTrigger asChild>
-                <button className="flex items-center gap-1 text-[11px] text-muted-foreground hover:text-foreground transition-colors">
-                  <Cpu className="h-3 w-3" />
-                  <span>{models.find((m) => m.id === selectedModelId)?.displayName || models[0].displayName}</span>
-                  <ChevronDown className="h-3 w-3" />
-                </button>
-              </DropdownMenuTrigger>
-              <DropdownMenuContent align="start">
-                {models.map((model) => (
-                  <DropdownMenuItem
-                    key={model.id}
-                    onClick={() => setSelectedModel(model.id)}
-                    className="text-xs font-mono"
-                  >
-                    {model.displayName}
-                    {(selectedModelId === model.id || (!selectedModelId && model.id === models[0].id)) && (
-                      <Badge variant="outline" className="text-[9px] ml-2 h-4">active</Badge>
-                    )}
-                  </DropdownMenuItem>
-                ))}
-              </DropdownMenuContent>
-            </DropdownMenu>
-          ) : (
-            <span className="text-[11px] text-muted-foreground">No ready models</span>
-          )}
+              <span className="text-[11px] text-muted-foreground">
+                {isStreaming ? 'Esc to stop the current response' : 'Enter to send'}
+              </span>
+            </div>
 
-          <span className="text-[11px] text-muted-foreground">
-            Enter to send, Shift+Enter for newline
-          </span>
+            <span className="text-[11px] text-muted-foreground">Shift+Enter adds a newline</span>
+          </div>
         </div>
       </div>
     </div>
