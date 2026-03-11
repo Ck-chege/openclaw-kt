@@ -10,26 +10,22 @@ private const val SkillCommandMaxLength = 32
 private const val SkillCommandFallback = "skill"
 
 /**
- * Instruction appended after `<available_skills>` XML to tell the agent
- * how to use non-always skills. The wording must be directive enough that
- * the model actually calls `use_skill` before responding.
- */
-private val USE_SKILL_INSTRUCTION = """
-IMPORTANT — Skill activation:
-Before composing your reply, scan the available_skills list above. If ANY skill's name or description could apply to the user's message, you MUST call the use_skill tool with that skill's name to load its full instructions, then follow those instructions exactly. Do not skip this step. Do not respond without checking skills first.
-""".trimIndent().trim()
-
-/**
  * Builds skill snapshots and prompt XML for injection into the agent system prompt.
  *
- * XML format (compact, ~24 tokens per skill):
+ * XML format (TS-compatible, child elements):
  * ```xml
  * <available_skills>
- *   <skill name="search" description="Web search" path="/workspace/skills/search/SKILL.md" />
+ *   <skill>
+ *     <name>weather</name>
+ *     <description>Get weather forecasts</description>
+ *     <location>/workspace/skills/weather/SKILL.md</location>
+ *   </skill>
  * </available_skills>
  * ```
  *
  * Always-on skills have their body appended after the XML block.
+ * The `## Skills (mandatory)` header and usage instructions are injected
+ * by PromptAssembler, not baked into the XML.
  */
 class SkillLoader(
     private val scanner: SkillScanner = SkillScanner(),
@@ -46,7 +42,9 @@ class SkillLoader(
         val version: Long,
         val configHash: Int,
         val snapshot: SkillSnapshot,
-        val fingerprint: SkillRootsFingerprint
+        val fingerprint: SkillRootsFingerprint,
+        /** Epoch ms when we last ran a filesystem fingerprint check against this snapshot. */
+        val lastFingerprintCheckMs: Long = 0L
     )
 
     private val snapshotCache = ConcurrentHashMap<String, CachedSnapshot>()
@@ -181,14 +179,23 @@ class SkillLoader(
     /**
      * Build a complete skill snapshot by scanning directories, gating, and generating XML.
      *
-     * Uses a three-layer cache invalidation strategy:
-     * 1. **Version** — bumped by [refresh] (called by watcher or RPC)
-     * 2. **Config hash** — detects config changes (bundled paths, plugin paths, settings)
-     * 3. **Filesystem mtime** — detects on-disk changes regardless of watcher timing
+     * Uses a **hybrid three-layer cache strategy** optimised for both correctness and scale:
      *
-     * The mtime check is the correctness guarantee: it compares root directory
-     * modification times against the last scan timestamp. This catches changes
-     * that the watcher hasn't reported yet (e.g., macOS WatchService polling delay).
+     * **Layer 1 — Version counter (O(1), zero disk I/O):**
+     * The watcher calls [refresh] on every filesystem change, bumping a version counter
+     * and evicting the cache. If the counter changed, we rebuild immediately.
+     *
+     * **Layer 2 — Config hash (O(1)):**
+     * Detects config changes (bundled paths, plugin paths, feature flags) that the watcher
+     * won't observe.
+     *
+     * **Layer 3 — Periodic fingerprint check (O(skills), disk I/O — runs rarely):**
+     * A safety net that catches changes the watcher missed (OS delays, NFS mounts,
+     * rapid writes within the debounce window). Runs at most once per
+     * [SkillsLoadConfig.fingerprintCheckIntervalMs] (default 30 s).
+     *
+     * **For large skill sets (500+ skills):** most turns hit Layer 1 (O(1) integer compare,
+     * zero disk I/O). Layer 3 fires at most every 30 s regardless of traffic volume.
      */
     fun buildSnapshot(
         workspacePath: Path,
@@ -205,19 +212,43 @@ class SkillLoader(
             bundledSkillsPath?.toString(),
             pluginSkillsPaths.map(Path::toString)
         ).hashCode()
-        val sources = SkillScanner.defaultSources(workspacePath, config, bundledSkillsPath, pluginSkillsPaths)
-        val rootDirs = sources.map { it.path }
-        val currentFingerprint = SkillRootsFingerprint.capture(rootDirs)
+        val now = System.currentTimeMillis()
+        val fingerprintIntervalMs = config.load.fingerprintCheckIntervalMs
 
+        // ── Layer 1 & 2: version + config fast path ──────────────────────────
         snapshotCache[cacheKey]?.let { cached ->
             if (cached.version == version && cached.configHash == configHash) {
-                if (cached.fingerprint == currentFingerprint) {
-                    logger.debug { "Snapshot cache hit for $cacheKey (fingerprint unchanged)" }
+
+                // ── Layer 3: periodic fingerprint safety net ──────────────────
+                val msSinceCheck = now - cached.lastFingerprintCheckMs
+                val needsFingerprintCheck = fingerprintIntervalMs == 0L ||
+                        msSinceCheck >= fingerprintIntervalMs
+
+                if (!needsFingerprintCheck) {
+                    // Fast path: version matches + recently fingerprinted → trust cache
+                    logger.debug { "Snapshot cache hit for $cacheKey (version=$version, age=${msSinceCheck}ms)" }
                     return cached.snapshot
                 }
-                logger.info { "Snapshot cache stale for $cacheKey (filesystem fingerprint changed)" }
+
+                // Fingerprint interval elapsed — run the safety-net check
+                val sources = SkillScanner.defaultSources(workspacePath, config, bundledSkillsPath, pluginSkillsPaths)
+                val currentFingerprint = SkillRootsFingerprint.capture(sources.map { it.path })
+                if (cached.fingerprint == currentFingerprint) {
+                    // Filesystem unchanged — refresh the timestamp and return cached snapshot
+                    logger.debug { "Snapshot fingerprint verified for $cacheKey (unchanged after ${msSinceCheck}ms)" }
+                    snapshotCache[cacheKey] = cached.copy(lastFingerprintCheckMs = now)
+                    return cached.snapshot
+                }
+
+                // Fingerprint changed — watcher missed an event; rebuild below
+                logger.info { "Snapshot stale for $cacheKey: fingerprint changed (watcher lag detected after ${msSinceCheck}ms)" }
             }
         }
+
+        // ── Rebuild: version changed, config changed, or fingerprint mismatch ─
+        val sources = SkillScanner.defaultSources(workspacePath, config, bundledSkillsPath, pluginSkillsPaths)
+        val rootDirs = sources.map { it.path }
+        val freshFingerprint = SkillRootsFingerprint.capture(rootDirs)
 
         val loaded = collectSkills(
             workspacePath = workspacePath,
@@ -231,14 +262,14 @@ class SkillLoader(
         if (skills.isEmpty()) {
             logger.debug { "No eligible skills found for workspace: $workspacePath" }
             return SkillSnapshot.EMPTY.copy(version = version).also {
-                snapshotCache[cacheKey] = CachedSnapshot(version, configHash, it, currentFingerprint)
+                snapshotCache[cacheKey] = CachedSnapshot(version, configHash, it, freshFingerprint, now)
             }
         }
 
         val xml = buildPromptXml(skills, config.load)
         logger.info { "Built skill snapshot: ${skills.size} skills, ${xml.length} chars XML" }
         return SkillSnapshot(skills = skills, promptXml = xml, version = version).also {
-            snapshotCache[cacheKey] = CachedSnapshot(version, configHash, it, currentFingerprint)
+            snapshotCache[cacheKey] = CachedSnapshot(version, configHash, it, freshFingerprint, now)
         }
     }
 
