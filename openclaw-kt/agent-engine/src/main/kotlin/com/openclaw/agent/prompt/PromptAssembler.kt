@@ -169,7 +169,16 @@ object PromptAssembler {
 
         // ── Skills ────────────────────────────────────────────────────────────
         if (ctx.skillsXml.isNotBlank()) {
-            raw(ctx.skillsXml)
+            section("Skills (mandatory)") {
+                buildString {
+                    appendLine("Before replying: scan <available_skills> <description> entries.")
+                    appendLine("- If exactly one skill clearly applies: read its SKILL.md at <location> with `read`, then follow it.")
+                    appendLine("- If multiple could apply: choose the most specific one, then read/follow it.")
+                    appendLine("- If none clearly apply: do not read any SKILL.md.")
+                    appendLine("Constraints: never read more than one skill up front; only read after selecting.")
+                    append(ctx.skillsXml)
+                }
+            }
         }
 
         // ── Memory Recall (if memory tools are available) ─────────────────────
@@ -249,7 +258,16 @@ object PromptAssembler {
         section("Safety") { SAFETY_RULES }
 
         if (ctx.skillsXml.isNotBlank()) {
-            raw(ctx.skillsXml)
+            section("Skills (mandatory)") {
+                buildString {
+                    appendLine("Before replying: scan <available_skills> <description> entries.")
+                    appendLine("- If exactly one skill clearly applies: read its SKILL.md at <location> with `read`, then follow it.")
+                    appendLine("- If multiple could apply: choose the most specific one, then read/follow it.")
+                    appendLine("- If none clearly apply: do not read any SKILL.md.")
+                    appendLine("Constraints: never read more than one skill up front; only read after selecting.")
+                    append(ctx.skillsXml)
+                }
+            }
         }
 
         if (ctx.workspacePath.isNotBlank()) {
