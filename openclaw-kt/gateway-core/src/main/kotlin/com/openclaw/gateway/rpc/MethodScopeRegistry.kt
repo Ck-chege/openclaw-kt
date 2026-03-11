@@ -16,7 +16,8 @@ object MethodScopeRegistry {
         listOf(
             "health", "status", "config.get", "models.list",
             "channels.status", "sessions.list", "sessions.get", "sessions.history",
-            "setup.status", "agents.list", "skills.list", "skills.status"
+            "setup.status", "agents.list", "skills.list", "skills.status",
+            "workspace.read", "tools.catalog", "usage.summary", "logs.recent"
         ).forEach { put(it, OperatorLevel.READ) }
 
         // WRITE-scoped methods

@@ -15,6 +15,10 @@ class MethodScopeRegistryTest {
             MethodScopeRegistry.requiredScope("health") shouldBe OperatorLevel.READ
             MethodScopeRegistry.requiredScope("sessions.list") shouldBe OperatorLevel.READ
             MethodScopeRegistry.requiredScope("skills.list") shouldBe OperatorLevel.READ
+            MethodScopeRegistry.requiredScope("workspace.read") shouldBe OperatorLevel.READ
+            MethodScopeRegistry.requiredScope("tools.catalog") shouldBe OperatorLevel.READ
+            MethodScopeRegistry.requiredScope("usage.summary") shouldBe OperatorLevel.READ
+            MethodScopeRegistry.requiredScope("logs.recent") shouldBe OperatorLevel.READ
         }
 
         @Test
@@ -56,6 +60,8 @@ class MethodScopeRegistryTest {
         fun `read scope can access read methods`() {
             MethodScopeRegistry.isAuthorized("health", setOf("read")) shouldBe true
             MethodScopeRegistry.isAuthorized("sessions.list", setOf("read")) shouldBe true
+            MethodScopeRegistry.isAuthorized("workspace.read", setOf("read")) shouldBe true
+            MethodScopeRegistry.isAuthorized("logs.recent", setOf("read")) shouldBe true
         }
 
         @Test
