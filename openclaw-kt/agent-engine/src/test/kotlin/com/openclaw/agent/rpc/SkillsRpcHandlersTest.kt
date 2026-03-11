@@ -47,6 +47,15 @@ class SkillsRpcHandlersTest {
         )
     }
 
+    private fun createSkillFromContent(
+        dirName: String,
+        content: String
+    ) {
+        val skillsDir = tempDir.resolve("skills").createDirectories()
+        val skillDir = skillsDir.resolve(dirName).createDirectories()
+        skillDir.resolve("SKILL.md").writeText(content)
+    }
+
     private fun createRouter(skillsConfig: SkillsConfig = SkillsConfig()): Pair<RpcRouter, ConfigManager> {
         val configPath = tempDir.resolve("openclaw.conf")
         val writer = ConfigWriter(configPath)
@@ -88,7 +97,18 @@ class SkillsRpcHandlersTest {
 
         @Test
         fun `skills list returns UI payload`() = runTest {
-            createSkill("search", "Search docs")
+            createSkillFromContent(
+                "search",
+                """
+                |---
+                |name: search
+                |description: Search docs
+                |command-dispatch: tool
+                |command-tool: sessions_send
+                |---
+                |Use search carefully.
+                """.trimMargin()
+            )
             val (router, _) = createRouter(
                 SkillsConfig(entries = mapOf("search" to SkillEntryConfig(enabled = false)))
             )
@@ -103,6 +123,9 @@ class SkillsRpcHandlersTest {
             search["enabled"]!!.jsonPrimitive.boolean shouldBe false
             search["eligible"]!!.jsonPrimitive.boolean shouldBe false
             search["filePath"]!!.jsonPrimitive.content shouldBe tempDir.resolve("skills/search/SKILL.md").toRealPath().toString()
+            search["invocation"]!!.jsonObject["commandName"]!!.jsonPrimitive.content shouldBe "search"
+            search["invocation"]!!.jsonObject["commandDispatch"]!!.jsonPrimitive.content shouldBe "tool"
+            search["invocation"]!!.jsonObject["commandTool"]!!.jsonPrimitive.content shouldBe "sessions_send"
         }
     }
 

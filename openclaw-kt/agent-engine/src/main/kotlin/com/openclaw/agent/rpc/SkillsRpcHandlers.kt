@@ -64,6 +64,14 @@ fun registerSkillsHandlers(
                         put("blockedByAllowlist", skill.blockedByAllowlist)
                         skill.emoji?.let { put("emoji", it) }
                         skill.homepage?.let { put("homepage", it) }
+                        putJsonObject("invocation") {
+                            put("userInvocable", skill.invocation.userInvocable)
+                            put("disableModelInvocation", skill.invocation.disableModelInvocation)
+                            skill.invocation.commandName?.let { put("commandName", it) }
+                            skill.invocation.commandDispatch?.let { put("commandDispatch", it.name.lowercase()) }
+                            skill.invocation.commandTool?.let { put("commandTool", it) }
+                            put("commandArgMode", skill.invocation.commandArgMode.name.lowercase())
+                        }
                         putJsonObject("entry") {
                             skill.entry.enabled?.let { put("enabled", it) }
                             put("hasApiKey", skill.entry.hasApiKey)
