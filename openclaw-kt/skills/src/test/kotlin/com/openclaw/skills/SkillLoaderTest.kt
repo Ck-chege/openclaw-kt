@@ -77,8 +77,8 @@ class SkillLoaderTest {
             ))
             xml shouldContain "<available_skills>"
             xml shouldContain "</available_skills>"
-            xml shouldContain "name=\"search\""
-            xml shouldContain "description=\"Web search\""
+            xml shouldContain "<name>search</name>"
+            xml shouldContain "<description>Web search</description>"
         }
 
         @Test
@@ -88,27 +88,28 @@ class SkillLoaderTest {
                 makeSkillMeta("search", "Search the web"),
                 makeSkillMeta("deploy", "Deploy apps")
             ))
-            xml shouldContain "name=\"search\""
-            xml shouldContain "name=\"deploy\""
+            xml shouldContain "<name>search</name>"
+            xml shouldContain "<name>deploy</name>"
         }
 
         @Test
-        fun `special chars escaped in attributes`() {
+        fun `special chars escaped in element content`() {
             val loader = SkillLoader()
             val xml = loader.buildPromptXml(listOf(
-                makeSkillMeta("test & <skill>", "A \"quoted\" description")
+                makeSkillMeta("test & <skill>", "A <quoted> description")
             ))
-            xml shouldContain "name=\"test &amp; &lt;skill&gt;\""
-            xml shouldContain "description=\"A &quot;quoted&quot; description\""
+            xml shouldContain "<name>test &amp; &lt;skill&gt;</name>"
+            xml shouldContain "<description>A &lt;quoted&gt; description</description>"
         }
 
         @Test
-        fun `emoji included when present`() {
+        fun `emoji omitted — not a separate element in TS-compatible format`() {
             val loader = SkillLoader()
             val xml = loader.buildPromptXml(listOf(
                 makeSkillMeta("search", emoji = "\uD83D\uDD0E")
             ))
-            xml shouldContain "emoji=\"\uD83D\uDD0E\""
+            // emoji is not exposed as a dedicated XML element in the TS-compatible format
+            xml shouldNotContain "emoji="
         }
 
         @Test
@@ -121,7 +122,7 @@ class SkillLoaderTest {
         }
 
         @Test
-        fun `XML includes resource attributes when present`() {
+        fun `XML omits resource metadata — not in TS-compatible format`() {
             val loader = SkillLoader()
             val resources = SkillResources(
                 scripts = listOf("scripts/init.sh", "scripts/deploy.py"),
@@ -131,12 +132,10 @@ class SkillLoaderTest {
             val xml = loader.buildPromptXml(listOf(
                 makeSkillMeta("deploy", "Deploy apps", resources = resources)
             ))
-            xml shouldContain "has_scripts=\"true\""
-            xml shouldContain "scripts=\"scripts/init.sh,scripts/deploy.py\""
-            xml shouldContain "has_references=\"true\""
-            xml shouldContain "references=\"references/guide.md\""
-            xml shouldContain "has_assets=\"true\""
-            xml shouldContain "assets=\"assets/template.yml\""
+            // TS-compatible format uses <name>, <description>, <location> only
+            xml shouldNotContain "has_scripts"
+            xml shouldNotContain "has_references"
+            xml shouldNotContain "has_assets"
         }
 
         @Test
@@ -162,8 +161,8 @@ class SkillLoaderTest {
                 )
             ))
 
-            xml shouldContain "name=\"visible\""
-            xml shouldNotContain "name=\"hidden\""
+            xml shouldContain "<name>visible</name>"
+            xml shouldNotContain "<name>hidden</name>"
         }
     }
 
@@ -209,8 +208,8 @@ class SkillLoaderTest {
             val loader = SkillLoader(scanner)
             val snapshot = loader.buildSnapshot(workspace)
 
-            snapshot.promptXml shouldContain "name=\"search\""
-            snapshot.promptXml shouldContain "description=\"Find things\""
+            snapshot.promptXml shouldContain "<name>search</name>"
+            snapshot.promptXml shouldContain "<description>Find things</description>"
         }
 
         @Test
@@ -248,7 +247,7 @@ class SkillLoaderTest {
 
             val snapshot2 = loader.buildSnapshot(workspace)
             snapshot2.skills.size shouldBe 2
-            snapshot2.promptXml shouldContain "name=\"deploy\""
+            snapshot2.promptXml shouldContain "<name>deploy</name>"
         }
 
         @Test
@@ -262,13 +261,13 @@ class SkillLoaderTest {
             val loader = SkillLoader(scanner)
 
             val snapshot1 = loader.buildSnapshot(workspace)
-            snapshot1.promptXml shouldContain "description=\"Find things\""
+            snapshot1.promptXml shouldContain "<description>Find things</description>"
 
             Thread.sleep(50)
             skillFile.writeText("---\nname: search\ndescription: Updated search\n---\nNew body")
 
             val snapshot2 = loader.buildSnapshot(workspace)
-            snapshot2.promptXml shouldContain "description=\"Updated search\""
+            snapshot2.promptXml shouldContain "<description>Updated search</description>"
         }
 
         @Test
@@ -464,17 +463,19 @@ class SkillLoaderTest {
     inner class UseSkillInstruction {
 
         @Test
-        fun `prompt XML includes use_skill instruction for non-always skills`() {
+        fun `prompt XML does NOT include use_skill instruction — TS-compatible format uses read tool`() {
             val loader = SkillLoader()
             val xml = loader.buildPromptXml(listOf(
                 makeSkillMeta("search", "Web search")
             ))
-            xml shouldContain "use_skill"
-            xml shouldContain "MUST call"
+            // TS-compatible: instructions ("read its SKILL.md at <location> with `read`") 
+            // are injected by PromptAssembler, not baked into the XML
+            xml shouldNotContain "use_skill"
+            xml shouldNotContain "MUST call"
         }
 
         @Test
-        fun `prompt XML omits use_skill instruction when all skills are always-on`() {
+        fun `prompt XML omits use_skill instruction regardless of always-on status`() {
             val loader = SkillLoader()
             val xml = loader.buildPromptXml(listOf(
                 makeSkillMeta("core", "Core rules", always = true, body = "Always do this.")
@@ -487,13 +488,13 @@ class SkillLoaderTest {
     inner class TokenEfficiency {
 
         @Test
-        fun `compact format uses self-closing tags`() {
+        fun `TS-compatible format uses child elements not self-closing tags`() {
             val loader = SkillLoader()
             val xml = loader.buildPromptXml(listOf(
                 makeSkillMeta("search", "Web search")
             ))
-            xml shouldContain "/>"
-            xml shouldNotContain "</skill>"
+            xml shouldContain "</skill>"
+            xml shouldNotContain "/>"
         }
 
         @Test
@@ -524,11 +525,11 @@ class SkillLoaderTest {
 
             val xml = loader.buildPromptXml(skills)
 
-            xml shouldContain "name=\"skill-1\""
-            xml shouldContain "name=\"skill-2\""
-            xml shouldContain "name=\"skill-3\""
-            xml shouldNotContain "name=\"skill-4\""
-            xml shouldNotContain "name=\"skill-5\""
+            xml shouldContain "<name>skill-1</name>"
+            xml shouldContain "<name>skill-2</name>"
+            xml shouldContain "<name>skill-3</name>"
+            xml shouldNotContain "<name>skill-4</name>"
+            xml shouldNotContain "<name>skill-5</name>"
         }
 
         @Test
@@ -543,14 +544,14 @@ class SkillLoaderTest {
 
         @Test
         fun `XML truncation keeps complete skill boundaries`() {
-            val loader = SkillLoader(skillsBlockCharLimit = 160)
+            val loader = SkillLoader(skillsBlockCharLimit = 200)
             val xml = loader.buildPromptXml(listOf(
                 makeSkillMeta("skill-one", "short"),
                 makeSkillMeta("skill-two", "this description should push the second skill over the limit")
             ))
 
-            xml shouldContain "name=\"skill-one\""
-            xml shouldNotContain "name=\"skill-two\""
+            xml shouldContain "<name>skill-one</name>"
+            xml shouldNotContain "<name>skill-two</name>"
             xml shouldContain "</available_skills>"
         }
 
@@ -561,9 +562,9 @@ class SkillLoaderTest {
 
             val xml = loader.buildPromptXml(skills)
 
-            xml shouldContain "name=\"skill-1\""
-            xml shouldContain "name=\"skill-2\""
-            xml shouldContain "name=\"skill-3\""
+            xml shouldContain "<name>skill-1</name>"
+            xml shouldContain "<name>skill-2</name>"
+            xml shouldContain "<name>skill-3</name>"
             xml shouldContain "<available_skills>"
             xml shouldContain "</available_skills>"
         }
