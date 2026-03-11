@@ -6,6 +6,19 @@ import java.util.concurrent.ConcurrentHashMap
 
 private val logger = KotlinLogging.logger {}
 
+private const val SkillCommandMaxLength = 32
+private const val SkillCommandFallback = "skill"
+
+/**
+ * Instruction appended after `<available_skills>` XML to tell the agent
+ * how to use non-always skills. The wording must be directive enough that
+ * the model actually calls `use_skill` before responding.
+ */
+private val USE_SKILL_INSTRUCTION = """
+IMPORTANT — Skill activation:
+Before composing your reply, scan the available_skills list above. If ANY skill's name or description could apply to the user's message, you MUST call the use_skill tool with that skill's name to load its full instructions, then follow those instructions exactly. Do not skip this step. Do not respond without checking skills first.
+""".trimIndent().trim()
+
 /**
  * Builds skill snapshots and prompt XML for injection into the agent system prompt.
  *
@@ -32,7 +45,8 @@ class SkillLoader(
     private data class CachedSnapshot(
         val version: Long,
         val configHash: Int,
-        val snapshot: SkillSnapshot
+        val snapshot: SkillSnapshot,
+        val fingerprint: SkillRootsFingerprint
     )
 
     private val snapshotCache = ConcurrentHashMap<String, CachedSnapshot>()
@@ -62,7 +76,7 @@ class SkillLoader(
 
         val selectedSkills = mutableListOf<SkillMeta>()
         for (skill in capped) {
-            val candidate = buildRawXml(selectedSkills + skill)
+            val candidate = buildSkillsXmlBlock(selectedSkills + skill)
             if (candidate.length > limit) {
                 break
             }
@@ -96,7 +110,11 @@ class SkillLoader(
         append(" />")
     }
 
-    private fun buildRawXml(skills: List<SkillMeta>): String {
+    /**
+     * Build just the `<available_skills>` XML block (no instruction, no always-on bodies).
+     * Used for size-limit checks during skill selection.
+     */
+    private fun buildSkillsXmlBlock(skills: List<SkillMeta>): String {
         val lines = skills.map(::buildSkillLine)
         return buildString {
             appendLine("<available_skills>")
@@ -104,6 +122,24 @@ class SkillLoader(
                 appendLine(line)
             }
             append("</available_skills>")
+        }
+    }
+
+    /**
+     * Build the full prompt output: XML block + use_skill instruction + always-on bodies.
+     * The instruction and always-on bodies are fixed overhead not subject to the char limit.
+     */
+    private fun buildRawXml(skills: List<SkillMeta>): String {
+        val hasNonAlways = skills.any { !it.always }
+        return buildString {
+            append(buildSkillsXmlBlock(skills))
+
+            // Instruct the agent to use the use_skill tool for non-always skills
+            if (hasNonAlways) {
+                appendLine()
+                appendLine()
+                append(USE_SKILL_INSTRUCTION)
+            }
 
             // Append always-on skill bodies
             val alwaysOn = skills.filter { it.always && it.body.isNotBlank() }
@@ -115,7 +151,7 @@ class SkillLoader(
                     appendLine(skill.body)
                 }
             }
-            }.trimEnd()
+        }.trimEnd()
     }
 
     fun loadEntries(
@@ -166,6 +202,15 @@ class SkillLoader(
 
     /**
      * Build a complete skill snapshot by scanning directories, gating, and generating XML.
+     *
+     * Uses a three-layer cache invalidation strategy:
+     * 1. **Version** — bumped by [refresh] (called by watcher or RPC)
+     * 2. **Config hash** — detects config changes (bundled paths, plugin paths, settings)
+     * 3. **Filesystem mtime** — detects on-disk changes regardless of watcher timing
+     *
+     * The mtime check is the correctness guarantee: it compares root directory
+     * modification times against the last scan timestamp. This catches changes
+     * that the watcher hasn't reported yet (e.g., macOS WatchService polling delay).
      */
     fun buildSnapshot(
         workspacePath: Path,
@@ -182,11 +227,20 @@ class SkillLoader(
             bundledSkillsPath?.toString(),
             pluginSkillsPaths.map(Path::toString)
         ).hashCode()
+        val sources = SkillScanner.defaultSources(workspacePath, config, bundledSkillsPath, pluginSkillsPaths)
+        val rootDirs = sources.map { it.path }
+        val currentFingerprint = SkillRootsFingerprint.capture(rootDirs)
+
         snapshotCache[cacheKey]?.let { cached ->
             if (cached.version == version && cached.configHash == configHash) {
-                return cached.snapshot
+                if (cached.fingerprint == currentFingerprint) {
+                    logger.debug { "Snapshot cache hit for $cacheKey (fingerprint unchanged)" }
+                    return cached.snapshot
+                }
+                logger.info { "Snapshot cache stale for $cacheKey (filesystem fingerprint changed)" }
             }
         }
+
         val loaded = collectSkills(
             workspacePath = workspacePath,
             config = config,
@@ -199,14 +253,14 @@ class SkillLoader(
         if (skills.isEmpty()) {
             logger.debug { "No eligible skills found for workspace: $workspacePath" }
             return SkillSnapshot.EMPTY.copy(version = version).also {
-                snapshotCache[cacheKey] = CachedSnapshot(version, configHash, it)
+                snapshotCache[cacheKey] = CachedSnapshot(version, configHash, it, currentFingerprint)
             }
         }
 
         val xml = buildPromptXml(skills, config.load)
         logger.info { "Built skill snapshot: ${skills.size} skills, ${xml.length} chars XML" }
         return SkillSnapshot(skills = skills, promptXml = xml, version = version).also {
-            snapshotCache[cacheKey] = CachedSnapshot(version, configHash, it)
+            snapshotCache[cacheKey] = CachedSnapshot(version, configHash, it, currentFingerprint)
         }
     }
 
@@ -217,6 +271,19 @@ class SkillLoader(
     fun loadFull(snapshot: SkillSnapshot, skillName: String): String? {
         val skill = snapshot.skills.find { it.name == skillName } ?: return null
         return skill.body.ifBlank { null }
+    }
+
+    /**
+     * Load a skill body from the most recently cached snapshot for a workspace.
+     * Returns null if no snapshot is cached or the skill is not found.
+     *
+     * Used by [UseSkillTool] to load skill instructions at agent runtime
+     * without requiring the caller to hold a snapshot reference.
+     */
+    fun loadFullFromCache(workspacePath: Path, skillName: String): String? {
+        val cacheKey = workspacePath.toAbsolutePath().normalize().toString()
+        val cached = snapshotCache[cacheKey] ?: return null
+        return loadFull(cached.snapshot, skillName)
     }
 
     private fun collectSkills(
@@ -233,6 +300,7 @@ class SkillLoader(
             loadConfig = config.load,
             gateOverride = gate
         )
+        val commandNames = resolveCommandNames(scanned.map { it.skill })
         val status = scanned.map { scannedSkill ->
             val skill = scannedSkill.skill
             val entryConfig = config.entries[skill.skillKey]
@@ -270,6 +338,14 @@ class SkillLoader(
                     env = entryConfig?.env ?: emptyMap(),
                     config = entryConfig?.config ?: emptyMap(),
                     hasApiKey = !entryConfig?.apiKey.isNullOrBlank()
+                ),
+                invocation = SkillInvocationStatus(
+                    userInvocable = skill.invocation.userInvocable,
+                    disableModelInvocation = skill.invocation.disableModelInvocation,
+                    commandName = commandNames[skill.skillKey],
+                    commandDispatch = skill.invocation.commandDispatch,
+                    commandTool = skill.invocation.commandTool,
+                    commandArgMode = skill.invocation.commandArgMode
                 )
             )
         }
@@ -280,6 +356,7 @@ class SkillLoader(
         val eligibleSkills = scanned
             .map { it.skill }
             .filter { it.skillKey in eligibleSkillKeys }
+            .map { skill -> skill.copy(body = resolveBodyPaths(skill)) }
 
         return LoadedSkills(
             status = status,
@@ -288,6 +365,63 @@ class SkillLoader(
     }
 
     companion object {
+        /**
+         * Expand relative resource paths in a skill's body to absolute paths
+         * using the skill's [SkillMeta.baseDir]. Only paths that match known
+         * resource entries (scripts/, references/, assets/) are expanded, so
+         * arbitrary text is not mangled.
+         *
+         * This ensures skill scripts are found regardless of the agent's
+         * working directory.
+         */
+        fun resolveBodyPaths(skill: SkillMeta): String {
+            if (skill.body.isBlank() || skill.resources.isEmpty) return skill.body
+            val baseDir = skill.baseDir.toAbsolutePath().normalize()
+            var resolved = skill.body
+            val allResourcePaths = skill.resources.scripts +
+                skill.resources.references +
+                skill.resources.assets
+            for (relativePath in allResourcePaths) {
+                val absolutePath = baseDir.resolve(relativePath).toString()
+                resolved = resolved.replace(relativePath, absolutePath)
+            }
+            return resolved
+        }
+
+        private fun resolveCommandNames(skills: List<SkillMeta>): Map<String, String> {
+            val used = mutableSetOf<String>()
+            return buildMap {
+                skills.forEach { skill ->
+                    if (!skill.invocation.userInvocable) return@forEach
+                    val base = sanitizeCommandName(skill.name)
+                    val unique = resolveUniqueCommandName(base, used)
+                    used += unique.lowercase()
+                    put(skill.skillKey, unique)
+                }
+            }
+        }
+
+        private fun sanitizeCommandName(raw: String): String {
+            val normalized = raw
+                .lowercase()
+                .replace(Regex("[^a-z0-9_]+"), "_")
+                .replace(Regex("_+"), "_")
+                .trim('_')
+                .take(SkillCommandMaxLength)
+            return normalized.ifBlank { SkillCommandFallback }
+        }
+
+        private fun resolveUniqueCommandName(base: String, used: Set<String>): String {
+            if (base.lowercase() !in used) return base
+            for (index in 2..999) {
+                val suffix = "_$index"
+                val prefix = base.take((SkillCommandMaxLength - suffix.length).coerceAtLeast(1))
+                val candidate = "$prefix$suffix"
+                if (candidate.lowercase() !in used) return candidate
+            }
+            return "${base.take((SkillCommandMaxLength - 2).coerceAtLeast(1))}_x"
+        }
+
         /**
          * Escape special characters for XML attribute values.
          */

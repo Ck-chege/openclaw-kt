@@ -124,19 +124,19 @@ class SkillLoaderTest {
         fun `XML includes resource attributes when present`() {
             val loader = SkillLoader()
             val resources = SkillResources(
-                scripts = listOf("init.sh", "deploy.py"),
-                references = listOf("guide.md"),
-                assets = listOf("template.yml")
+                scripts = listOf("scripts/init.sh", "scripts/deploy.py"),
+                references = listOf("references/guide.md"),
+                assets = listOf("assets/template.yml")
             )
             val xml = loader.buildPromptXml(listOf(
                 makeSkillMeta("deploy", "Deploy apps", resources = resources)
             ))
             xml shouldContain "has_scripts=\"true\""
-            xml shouldContain "scripts=\"init.sh,deploy.py\""
+            xml shouldContain "scripts=\"scripts/init.sh,scripts/deploy.py\""
             xml shouldContain "has_references=\"true\""
-            xml shouldContain "references=\"guide.md\""
+            xml shouldContain "references=\"references/guide.md\""
             xml shouldContain "has_assets=\"true\""
-            xml shouldContain "assets=\"template.yml\""
+            xml shouldContain "assets=\"assets/template.yml\""
         }
 
         @Test
@@ -227,6 +227,65 @@ class SkillLoaderTest {
             // Snapshot is an immutable data class — same value on re-access
             snapshot.skills.size shouldBe 1
             snapshot.promptXml shouldBe snapshot.promptXml
+        }
+
+        @Test
+        fun `new skill on disk is picked up without explicit refresh`() {
+            val workspace = tempDir.resolve("workspace").createDirectories()
+            val skillsDir = workspace.resolve("skills").createDirectories()
+            createSkillFile(skillsDir, "search", "search", "Web search")
+
+            val gate = SkillGate(FakeEnvironmentChecker())
+            val scanner = SkillScanner(gate)
+            val loader = SkillLoader(scanner)
+
+            val snapshot1 = loader.buildSnapshot(workspace)
+            snapshot1.skills.size shouldBe 1
+
+            // Simulate a skill being installed (e.g., by exec tool) after snapshot was built
+            Thread.sleep(50) // ensure mtime granularity
+            createSkillFile(skillsDir, "deploy", "deploy", "Deploy apps")
+
+            val snapshot2 = loader.buildSnapshot(workspace)
+            snapshot2.skills.size shouldBe 2
+            snapshot2.promptXml shouldContain "name=\"deploy\""
+        }
+
+        @Test
+        fun `modified SKILL_md is detected without explicit refresh`() {
+            val workspace = tempDir.resolve("workspace").createDirectories()
+            val skillsDir = workspace.resolve("skills").createDirectories()
+            val skillFile = createSkillFile(skillsDir, "search", "search", "Find things", body = "Original body")
+
+            val gate = SkillGate(FakeEnvironmentChecker())
+            val scanner = SkillScanner(gate)
+            val loader = SkillLoader(scanner)
+
+            val snapshot1 = loader.buildSnapshot(workspace)
+            snapshot1.promptXml shouldContain "description=\"Find things\""
+
+            Thread.sleep(50)
+            skillFile.writeText("---\nname: search\ndescription: Updated search\n---\nNew body")
+
+            val snapshot2 = loader.buildSnapshot(workspace)
+            snapshot2.promptXml shouldContain "description=\"Updated search\""
+        }
+
+        @Test
+        fun `cache is used when no filesystem changes`() {
+            val workspace = tempDir.resolve("workspace").createDirectories()
+            val skillsDir = workspace.resolve("skills").createDirectories()
+            createSkillFile(skillsDir, "search", "search")
+
+            val gate = SkillGate(FakeEnvironmentChecker())
+            val scanner = SkillScanner(gate)
+            val loader = SkillLoader(scanner)
+
+            val snapshot1 = loader.buildSnapshot(workspace)
+            val snapshot2 = loader.buildSnapshot(workspace)
+
+            // Same object reference — cache hit, no rescan
+            (snapshot1 === snapshot2) shouldBe true
         }
     }
 
@@ -344,6 +403,87 @@ class SkillLoaderTest {
     }
 
     @Nested
+    inner class CachedFullLoading {
+
+        @Test
+        fun `returns body from cached snapshot`() {
+            val workspace = tempDir.resolve("workspace").createDirectories()
+            val skillsDir = workspace.resolve("skills").createDirectories()
+            createSkillFile(skillsDir, "search", "search", body = "Search instructions.")
+
+            val gate = SkillGate(FakeEnvironmentChecker())
+            val scanner = SkillScanner(gate)
+            val loader = SkillLoader(scanner)
+
+            // Build snapshot to populate cache
+            loader.buildSnapshot(workspace)
+
+            val body = loader.loadFullFromCache(workspace, "search")
+            body.shouldNotBeNull()
+            body shouldBe "Search instructions."
+        }
+
+        @Test
+        fun `returns null when no snapshot is cached`() {
+            val loader = SkillLoader()
+            loader.loadFullFromCache(tempDir, "anything").shouldBeNull()
+        }
+
+        @Test
+        fun `returns null for unknown skill name`() {
+            val workspace = tempDir.resolve("workspace").createDirectories()
+            val skillsDir = workspace.resolve("skills").createDirectories()
+            createSkillFile(skillsDir, "search", "search", body = "Search body")
+
+            val gate = SkillGate(FakeEnvironmentChecker())
+            val scanner = SkillScanner(gate)
+            val loader = SkillLoader(scanner)
+            loader.buildSnapshot(workspace)
+
+            loader.loadFullFromCache(workspace, "nonexistent").shouldBeNull()
+        }
+
+        @Test
+        fun `returns correct body with multiple cached skills`() {
+            val workspace = tempDir.resolve("workspace").createDirectories()
+            val skillsDir = workspace.resolve("skills").createDirectories()
+            createSkillFile(skillsDir, "skill-a", "skill-a", body = "Instructions A")
+            createSkillFile(skillsDir, "skill-b", "skill-b", body = "Instructions B")
+
+            val gate = SkillGate(FakeEnvironmentChecker())
+            val scanner = SkillScanner(gate)
+            val loader = SkillLoader(scanner)
+            loader.buildSnapshot(workspace)
+
+            loader.loadFullFromCache(workspace, "skill-a") shouldBe "Instructions A"
+            loader.loadFullFromCache(workspace, "skill-b") shouldBe "Instructions B"
+        }
+    }
+
+    @Nested
+    inner class UseSkillInstruction {
+
+        @Test
+        fun `prompt XML includes use_skill instruction for non-always skills`() {
+            val loader = SkillLoader()
+            val xml = loader.buildPromptXml(listOf(
+                makeSkillMeta("search", "Web search")
+            ))
+            xml shouldContain "use_skill"
+            xml shouldContain "MUST call"
+        }
+
+        @Test
+        fun `prompt XML omits use_skill instruction when all skills are always-on`() {
+            val loader = SkillLoader()
+            val xml = loader.buildPromptXml(listOf(
+                makeSkillMeta("core", "Core rules", always = true, body = "Always do this.")
+            ))
+            xml shouldNotContain "use_skill"
+        }
+    }
+
+    @Nested
     inner class TokenEfficiency {
 
         @Test
@@ -430,6 +570,200 @@ class SkillLoaderTest {
     }
 
     @Nested
+    inner class BodyPathResolution {
+
+        @Test
+        fun `relative script paths in body are expanded to absolute paths`() {
+            val baseDir = Path.of("/home/user/.openclawk/workspace/skills/installer")
+            val skill = makeSkillMeta(
+                name = "installer",
+                body = "Run: python3 scripts/install.py --url \"https://example.com\"",
+                path = baseDir.resolve("SKILL.md"),
+                resources = SkillResources(scripts = listOf("scripts/install.py"))
+            ).copy(baseDir = baseDir)
+
+            val resolved = SkillLoader.resolveBodyPaths(skill)
+
+            resolved shouldContain "/home/user/.openclawk/workspace/skills/installer/scripts/install.py"
+            // The bare relative path should no longer appear without the absolute prefix
+            resolved shouldNotContain "python3 scripts/install.py"
+        }
+
+        @Test
+        fun `multiple resource paths are all expanded`() {
+            val baseDir = Path.of("/workspace/skills/pdf")
+            val skill = makeSkillMeta(
+                name = "pdf",
+                body = """
+                    Run scripts/convert.py for conversion.
+                    See references/guide.md for details.
+                    Template at assets/template.yml.
+                """.trimIndent(),
+                path = baseDir.resolve("SKILL.md"),
+                resources = SkillResources(
+                    scripts = listOf("scripts/convert.py"),
+                    references = listOf("references/guide.md"),
+                    assets = listOf("assets/template.yml")
+                )
+            ).copy(baseDir = baseDir)
+
+            val resolved = SkillLoader.resolveBodyPaths(skill)
+
+            resolved shouldContain "/workspace/skills/pdf/scripts/convert.py"
+            resolved shouldContain "/workspace/skills/pdf/references/guide.md"
+            resolved shouldContain "/workspace/skills/pdf/assets/template.yml"
+        }
+
+        @Test
+        fun `body without matching resource paths is unchanged`() {
+            val skill = makeSkillMeta(
+                name = "simple",
+                body = "Just follow these instructions. No scripts needed.",
+                resources = SkillResources.EMPTY
+            )
+
+            val resolved = SkillLoader.resolveBodyPaths(skill)
+
+            resolved shouldBe "Just follow these instructions. No scripts needed."
+        }
+
+        @Test
+        fun `blank body is returned as-is`() {
+            val skill = makeSkillMeta(
+                name = "empty",
+                body = "",
+                resources = SkillResources(scripts = listOf("scripts/run.sh"))
+            )
+
+            SkillLoader.resolveBodyPaths(skill) shouldBe ""
+        }
+
+        @Test
+        fun `snapshot body contains absolute paths after buildSnapshot`() {
+            val workspace = tempDir.resolve("workspace").createDirectories()
+            val skillsDir = workspace.resolve("skills").createDirectories()
+            val skillDir = skillsDir.resolve("my-tool").createDirectories()
+            val scriptsDir = skillDir.resolve("scripts").createDirectories()
+            scriptsDir.resolve("run.sh").writeText("#!/bin/bash\necho hello")
+            skillDir.resolve("SKILL.md").writeText(
+                "---\nname: my-tool\ndescription: A tool\n---\nExecute: bash scripts/run.sh"
+            )
+
+            val gate = SkillGate(FakeEnvironmentChecker())
+            val scanner = SkillScanner(gate)
+            val loader = SkillLoader(scanner)
+            val snapshot = loader.buildSnapshot(workspace)
+
+            snapshot.skills.size shouldBe 1
+            val body = snapshot.skills.first().body
+            body shouldContain "scripts/run.sh"
+            // The path should be absolute (contains the tempDir prefix)
+            body shouldContain tempDir.toAbsolutePath().toString()
+        }
+    }
+
+    @Nested
+    inner class FingerprintStalenessCheck {
+
+        @Test
+        fun `unchanged roots produce equal fingerprints`() {
+            val root = tempDir.resolve("skills").createDirectories()
+            val skillDir = root.resolve("search").createDirectories()
+            skillDir.resolve("SKILL.md").writeText("---\nname: search\n---\nBody")
+
+            val fp1 = SkillRootsFingerprint.capture(listOf(root))
+            val fp2 = SkillRootsFingerprint.capture(listOf(root))
+            fp1 shouldBe fp2
+        }
+
+        @Test
+        fun `new subdirectory changes fingerprint`() {
+            val root = tempDir.resolve("skills").createDirectories()
+            root.resolve("search").createDirectories()
+                .resolve("SKILL.md").writeText("---\nname: search\n---\nBody")
+
+            val fp1 = SkillRootsFingerprint.capture(listOf(root))
+
+            root.resolve("deploy").createDirectories()
+                .resolve("SKILL.md").writeText("---\nname: deploy\n---\nBody")
+
+            val fp2 = SkillRootsFingerprint.capture(listOf(root))
+            (fp1 == fp2) shouldBe false
+        }
+
+        @Test
+        fun `modified file in existing subdirectory changes fingerprint`() {
+            val root = tempDir.resolve("skills").createDirectories()
+            val skillDir = root.resolve("search").createDirectories()
+            skillDir.resolve("SKILL.md").writeText("---\nname: search\n---\nOriginal")
+
+            val fp1 = SkillRootsFingerprint.capture(listOf(root))
+
+            Thread.sleep(50) // ensure mtime granularity
+            skillDir.resolve("SKILL.md").writeText("---\nname: search\n---\nUpdated")
+
+            val fp2 = SkillRootsFingerprint.capture(listOf(root))
+            (fp1 == fp2) shouldBe false
+        }
+
+        @Test
+        fun `modified nested script changes fingerprint`() {
+            val root = tempDir.resolve("skills").createDirectories()
+            val skillDir = root.resolve("installer").createDirectories()
+            skillDir.resolve("SKILL.md").writeText("---\nname: installer\n---\nBody")
+            val scriptsDir = skillDir.resolve("scripts").createDirectories()
+            scriptsDir.resolve("install.py").writeText("print('v1')")
+
+            val fp1 = SkillRootsFingerprint.capture(listOf(root))
+
+            Thread.sleep(50)
+            scriptsDir.resolve("install.py").writeText("print('v2')")
+
+            val fp2 = SkillRootsFingerprint.capture(listOf(root))
+            (fp1 == fp2) shouldBe false
+        }
+
+        @Test
+        fun `added file in nested directory changes fingerprint`() {
+            val root = tempDir.resolve("skills").createDirectories()
+            val skillDir = root.resolve("pdf").createDirectories()
+            skillDir.resolve("SKILL.md").writeText("---\nname: pdf\n---\nBody")
+            skillDir.resolve("references").createDirectories()
+
+            val fp1 = SkillRootsFingerprint.capture(listOf(root))
+
+            skillDir.resolve("references").resolve("guide.md").writeText("# Guide")
+
+            val fp2 = SkillRootsFingerprint.capture(listOf(root))
+            (fp1 == fp2) shouldBe false
+        }
+
+        @Test
+        fun `non-existent root produces stable fingerprint`() {
+            val missing = tempDir.resolve("does-not-exist")
+            val fp1 = SkillRootsFingerprint.capture(listOf(missing))
+            val fp2 = SkillRootsFingerprint.capture(listOf(missing))
+            fp1 shouldBe fp2
+        }
+
+        @Test
+        fun `multiple roots — change in any changes fingerprint`() {
+            val root1 = tempDir.resolve("root1").createDirectories()
+            val root2 = tempDir.resolve("root2").createDirectories()
+            root1.resolve("search").createDirectories()
+                .resolve("SKILL.md").writeText("---\nname: search\n---\n")
+
+            val fp1 = SkillRootsFingerprint.capture(listOf(root1, root2))
+
+            root2.resolve("deploy").createDirectories()
+                .resolve("SKILL.md").writeText("---\nname: deploy\n---\n")
+
+            val fp2 = SkillRootsFingerprint.capture(listOf(root1, root2))
+            (fp1 == fp2) shouldBe false
+        }
+    }
+
+    @Nested
     inner class StatusAndRuntime {
 
         @Test
@@ -448,6 +782,19 @@ class SkillLoaderTest {
             report.skills.size shouldBe 1
             report.skills.first().blockedByAllowlist shouldBe true
             report.skills.first().eligible shouldBe false
+        }
+
+        @Test
+        fun `status generates deterministic unique slash command names`() {
+            val workspace = tempDir.resolve("workspace").createDirectories()
+            val skillsDir = workspace.resolve("skills").createDirectories()
+            createSkillFile(skillsDir, "hello-world", "Hello World")
+            createSkillFile(skillsDir, "hello_world", "Hello_World")
+
+            val loader = SkillLoader(SkillScanner(SkillGate(FakeEnvironmentChecker())))
+            val report = loader.buildStatus(workspacePath = workspace)
+
+            report.skills.map { it.invocation.commandName } shouldBe listOf("hello_world", "hello_world_2")
         }
 
         @Test
