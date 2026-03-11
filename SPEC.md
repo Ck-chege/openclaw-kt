@@ -24,7 +24,7 @@ OpenClaw is the fastest-growing open-source AI agent platform (247K GitHub stars
 
 ### Non-Goals
 
-- Reimplementing all 22+ channel connectors in Phase 1 (start with Telegram, Discord, Slack, WebChat)
+- Building channel connectors (Telegram, Discord, Slack, etc.) in core — these are plugins, not core modules
 - Building native companion apps (macOS/iOS/Android) in initial release
 - Backwards compatibility with OpenClaw's npm plugin ecosystem
 - Supporting OpenClaw's CLI runner mode (external CLI delegation) — focus on embedded Koog agent
@@ -64,14 +64,8 @@ openclaw-kt/
 ├── gateway-core/                 # Ktor server, WS protocol, config, routing
 ├── agent-engine/                 # Koog agent wrappers, workspace, prompt assembly
 ├── session-store/                # JSONL transcripts + archived compaction chain + Koog persistence
-├── channels/
-│   ├── channel-api/              # Channel interface contracts
-│   ├── telegram/
-│   ├── discord/
-│   ├── slack/
-│   ├── whatsapp/
-│   ├── signal/
-│   └── webchat/
+├── plugins/                      # Plugin API (OpenClawPlugin, OpenClawPluginApi, PluginHost)
+│   └── webchat/                  # Built-in WebChat plugin (browser UI via Ktor)
 ├── skills/                       # SKILL.md parser, lazy loading, gating
 ├── tools/
 │   ├── tools-api/                # Tool interface contracts

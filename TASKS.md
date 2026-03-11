@@ -281,73 +281,82 @@
 
 ---
 
-## Phase 2: Channels
+## Phase 2: Plugin System & WebChat
 
-### Epic 5: Channel Infrastructure
-> **Dependencies:** Epic 1 (protocol), Epic 2 (gateway-core)
-> **Outcome:** Channel interface, registry, access control, and outbound formatting ready for connectors
+> **Decision (2026-03-11):** Channel connectors (Telegram, Discord, Slack, etc.) are removed from
+> core scope. All external channels will be implemented as plugins in the future. The plugin API
+> is now the primary extension mechanism for channels, tools, skills, services, and hooks.
+> WebChat (browser-based UI) is the only built-in surface for now — it's served directly from
+> the Ktor gateway with no external dependencies.
 
-- [ ] **5.1 Channel interface & registry**
-  - [ ] Create `channels/channel-api/` module
-  - [ ] Implement `ChannelConnector` interface (connect, disconnect, incomingMessages Flow, sendMessage, probe)
-  - [ ] Implement `ChannelCapabilities` data class (threads, reactions, edits, media, maxLength, markdown)
-  - [ ] Implement `ChannelRegistry` with registration, lookup, and `probeAll()`
-  - [ ] Wire `channels.status` / `channels.probe` RPC handlers
+### Epic 5: Plugin API
+> **Dependencies:** Epic 1 (protocol), Epic 2 (gateway-core), Epic 3 (agent-engine)
+> **Outcome:** A clean registration API that any plugin can use to extend the gateway with
+> channels, tools, skills, services, hooks, HTTP routes, and gateway RPC methods. Channel
+> connectors (Discord, Telegram, etc.) are future plugins built against this API.
 
-- [ ] **5.2 Access control & DM policy**
-  - [ ] Implement `AccessControl` class with `checkAccess(envelope): AccessDecision`
-  - [ ] Implement `DmPolicy` enum (PAIRING, ALLOWLIST, OPEN)
-  - [ ] Implement pairing code generation and approval flow
-  - [ ] Implement `allowFrom` list matching per channel config
-  - [ ] Write tests: allowed user passes, unknown user gets pairing, denied user blocked
+- [ ] **5.1 Plugin API contracts**
+  - [ ] Create `plugins/` module
+  - [ ] Define `OpenClawPlugin` interface — `register(api: OpenClawPluginApi)`
+  - [ ] Define `OpenClawPluginApi` with registration methods:
+    - `registerChannel(connector: ChannelConnector)` — add a messaging surface
+    - `registerTool(factory: PluginToolFactory)` — inject agent tools (per-session context-aware)
+    - `registerSkillDir(path: Path)` — contribute a skills directory (merged with existing sources)
+    - `registerService(service: PluginService)` — background start/stop with gateway lifecycle
+    - `registerHook(event: PluginHookEvent, handler: PluginHookHandler)` — intercept agent lifecycle
+    - `registerHttpRoute(path: String, handler: HttpRouteHandler)` — add Ktor HTTP endpoints
+    - `registerGatewayMethod(method: String, handler: GatewayRpcHandler)` — add WS RPC methods
+  - [ ] Define `PluginService` interface (`start(ctx)` / `stop(ctx)`)
+  - [ ] Define `ChannelConnector` interface (`connect`, `disconnect`, `incomingMessages: Flow<InboundEnvelope>`, `sendMessage`, `capabilities`)
+  - [ ] Define `PluginHookEvent` sealed class: `BeforeToolCall`, `AfterToolCall`, `AgentStart`, `AgentEnd`
+  - [ ] Write tests: API surface compiles, types are correct
 
-- [ ] **5.3 Outbound formatting**
-  - [ ] Implement `OutboundFormatter` interface with `format()` and `chunk()`
-  - [ ] Implement markdown-to-platform conversion base (handles code blocks, bold, italic, links)
-  - [ ] Implement message chunking for platforms with length limits
-  - [ ] Write tests: long message → correct chunks, markdown converts properly
+- [ ] **5.2 Plugin host**
+  - [ ] Implement `PluginHost` — collects registered channels, tools, skills, services, hooks
+  - [ ] `PluginHost.install(plugin: OpenClawPlugin)` — calls `plugin.register(api)`, accumulates registrations
+  - [ ] `PluginHost.startAll()` — start all registered services in parallel (SupervisorScope)
+  - [ ] `PluginHost.stopAll()` — graceful shutdown of all services
+  - [ ] Expose registered skill dirs to `SkillLoader` (feeds into `pluginSkillsPaths`)
+  - [ ] Expose registered tools to `NativeToolsProvider` / `ToolPolicyPipeline`
+  - [ ] Expose registered channels to gateway routing layer
+  - [ ] Wire into `Main.kt` at startup
+  - [ ] Write tests: install two plugins → both services start, both tools registered
 
-- [ ] **5.4 Envelope normalization pipeline**
-  - [ ] Implement `InboundEnvelope` construction from raw channel messages
-  - [ ] Implement attachment normalization (images, files, voice → common Attachment type)
-  - [ ] Implement group routing logic (mention gating, reply tags)
+- [ ] **5.3 Hook dispatch**
+  - [ ] Implement `PluginHookDispatcher` — fan-out hook events to registered handlers
+  - [ ] Wire `BeforeToolCall` / `AfterToolCall` hooks into `AgentRuntime` tool execution path
+  - [ ] Wire `AgentStart` / `AgentEnd` hooks into `RunManager`
+  - [ ] Handler errors are caught and logged (never crash the agent turn)
+  - [ ] Write tests: hook fires, multiple handlers all called, error in one doesn't block others
+
+- [ ] **5.4 Inbound envelope & access control**
+  - [ ] Define `InboundEnvelope` as the normalized message contract for all channel connectors
+  - [ ] Implement `AccessControl` — `checkAccess(envelope): AccessDecision` (ALLOW / DENY / PAIR)
+  - [ ] Implement `DmPolicy` enum (PAIRING, ALLOWLIST, OPEN) per-channel-connector config
+  - [ ] Implement `allowFrom` list matching
+  - [ ] Write tests: allowed sender passes, unknown sender blocked or paired
 
 ---
 
-### Epic 6: Platform Connectors
-> **Dependencies:** Epic 5 (channel-api)
-> **Outcome:** Working Telegram, Discord, Slack, and WebChat connectors
+### Epic 6: WebChat
+> **Dependencies:** Epic 5 (plugin API), Epic 3 (agent-engine)
+> **Outcome:** Browser-based chat UI served directly from the Ktor gateway. The only built-in
+> channel — all other connectors are future plugins.
 
-- [ ] **6.1 Telegram connector**
-  - [ ] Create `channels/telegram/` module with vendeli/telegram-bot dependency
-  - [ ] Implement `TelegramConnector : ChannelConnector`
-  - [ ] Handle inbound: text messages, media groups, bot commands, inline queries
-  - [ ] Handle outbound: send text, images, files with Telegram markdown formatting
-  - [ ] Implement `TelegramFormatter` (Telegram MarkdownV2 escaping)
-  - [ ] Write integration test with mock Telegram API
-
-- [ ] **6.2 Discord connector**
-  - [ ] Create `channels/discord/` module with JDA dependency
-  - [ ] Implement `DiscordConnector : ChannelConnector`
-  - [ ] Handle inbound: messages, slash commands, threads, reactions
-  - [ ] Handle outbound: send text, embeds, files with Discord markdown
-  - [ ] Implement guild management (per-guild config, user allowlists)
-  - [ ] Implement `DiscordFormatter` (Discord markdown, 2000-char chunks)
-  - [ ] Write integration test with mock Discord gateway
-
-- [ ] **6.3 Slack connector**
-  - [ ] Create `channels/slack/` module with slack-api-client dependency
-  - [ ] Implement `SlackConnector : ChannelConnector`
-  - [ ] Handle inbound: app mentions, DMs, threads, file uploads
-  - [ ] Handle outbound: send text, blocks, files with Slack mrkdwn
-  - [ ] Implement `SlackFormatter` (Slack mrkdwn syntax)
-  - [ ] Write integration test with mock Slack events API
-
-- [ ] **6.4 WebChat connector**
-  - [ ] Implement `WebChatConnector` served directly from Ktor HTTP surface
-  - [ ] WebSocket-based: browser connects, sends messages, receives streaming responses
-  - [ ] Serve static SPA files from gateway (placeholder HTML for now)
+- [ ] **6.1 WebChat connector (plugin)**
+  - [ ] Implement `WebChatPlugin : OpenClawPlugin` — self-registers via `api.registerChannel()`
+  - [ ] Implement `WebChatConnector : ChannelConnector`
+  - [ ] Browser connects via WebSocket to Ktor gateway
+  - [ ] Inbound: browser sends text messages, received as `InboundEnvelope`
+  - [ ] Outbound: agent token deltas streamed to browser in real time
+  - [ ] Serve static placeholder HTML/JS SPA from Ktor static routes
   - [ ] Write integration test: browser WS → agent → streaming response back
+
+- [ ] **6.2 WebChat UI (minimal)**
+  - [ ] Single-page chat interface (plain HTML + JS, no framework dependency)
+  - [ ] Text input, send button, streaming response display
+  - [ ] Session ID management (persisted in localStorage)
+  - [ ] Bundled as static resources in `app/` module resources
 
 ---
 
@@ -377,7 +386,7 @@
   - [x] Integrate into `WorkspaceLoader.assembleSystemPrompt()` at the skills section
   - [x] Write tests: XML output is compact, snapshot caches correctly, full load returns content
 
-- [ ] **7.4 Skills source parity & precedence fix**
+- [x] **7.4 Skills source parity & precedence fix**
   > Fixes gaps vs TS reference found during audit (2026-03-11)
 
   - [ ] **Fix precedence reversal** — `SkillScanner.scanDetailedSources()` uses a `seen` set (first-wins), but
@@ -495,8 +504,8 @@
 ---
 
 ### Epic 10: Cron Scheduler
-> **Dependencies:** Epic 3 (agent-engine), Epic 4 (session-store), Epic 5 (channels)
-> **Outcome:** Time-triggered agent runs with channel delivery
+> **Dependencies:** Epic 3 (agent-engine), Epic 4 (session-store), Epic 5 (plugin API)
+> **Outcome:** Time-triggered agent runs with optional delivery via registered channel plugins
 
 - [ ] **10.1 Cron core scheduler**
   - [ ] Create `cron/` module with kotlinx-datetime dependency
@@ -518,7 +527,7 @@
   - [ ] Write tests: inject adds to main session, isolated creates new session
 
 - [ ] **10.4 Delivery & RPC**
-  - [ ] Implement channel delivery — send cron results to specified channel (or "last" used channel)
+  - [ ] Implement channel delivery — send cron results via registered channel plugin (if any connected)
   - [ ] Implement webhook delivery — HTTP POST with SSRF protection (block internal IPs, 10s timeout)
   - [ ] Wire `cron.list` / `cron.add` / `cron.update` / `cron.remove` / `cron.run` RPC handlers
   - [ ] Implement `cron` agent tool (owner-only gate)
@@ -526,31 +535,34 @@
 
 ---
 
-### Epic 11: Plugin System
-> **Dependencies:** Epic 3 (agent-engine)
-> **Outcome:** Plugins can intercept agent lifecycle via Koog Features
+### Epic 11: Built-in Plugins
+> **Dependencies:** Epic 5 (plugin API)
+> **Outcome:** First-party plugins that ship with the core distribution, demonstrating the plugin
+> API and providing useful default capabilities. These are the reference implementation for
+> third-party plugin authors.
+> _Note: The plugin host, API contracts, and hook dispatch were moved to Epic 5._
 
-- [ ] **11.1 Plugin loader**
-  - [ ] Create `plugins/` module
-  - [ ] Implement `PluginDescriptor` data class (name, type, version, config)
-  - [ ] Implement `PluginLoader.discover()` — scan configured paths for plugin packages
-  - [ ] Implement `PluginLoader.load()` — instantiate plugin, validate descriptor
-  - [ ] Write tests: discover finds plugins, invalid plugin skipped with warning
+- [ ] **11.1 Audit log plugin**
+  - [ ] Implement `AuditLogPlugin : OpenClawPlugin`
+  - [ ] On `BeforeToolCall` hook: log tool name, args, session key
+  - [ ] On `AfterToolCall` hook: log result summary, duration
+  - [ ] Write JSONL audit log to `~/.openclawk/audit/YYYY-MM-DD.jsonl`
+  - [ ] Write tests: audit log contains expected entries after tool call
 
-- [ ] **11.2 Koog Feature hooks**
-  - [ ] Implement `Plugin` interface with `install(pipeline: AIAgentPipeline)`
-  - [ ] Map hook points to Koog Features:
-    - `beforeToolCall` → EventHandler.onToolCall
-    - `afterToolCall` → EventHandler.onToolResult
-    - `agentStart` / `agentEnd` → lifecycle Feature
-    - `beforeModelResolve` → ModelRouter Feature
-    - `agentBootstrap` → custom Feature that mutates bootstrap files
-  - [ ] Write tests: hook fires at correct point, multiple plugins compose
+- [ ] **11.2 Session memory plugin**
+  - [ ] Implement `SessionMemoryPlugin : OpenClawPlugin`
+  - [ ] On `AgentEnd` hook: prompt agent to flush memories to `memory/YYYY-MM-DD.md`
+  - [ ] Skip if session was too short (< N turns) or already flushed in this session
+  - [ ] Write tests: memory file updated after session, short sessions skipped
 
-- [ ] **11.3 Built-in plugins**
-  - [ ] Implement `AuditLogPlugin` — log all tool calls and model requests
-  - [ ] Implement `SessionMemoryPlugin` — auto-update MEMORY.md after sessions
-  - [ ] Write tests: audit log records events, session memory updates file
+- [ ] **11.3 Example channel plugin (Discord)**
+  - [ ] Implement `DiscordPlugin : OpenClawPlugin` as a reference channel plugin
+  - [ ] Registers `DiscordConnector` via `api.registerChannel()`
+  - [ ] Ships `discord/` skills directory via `api.registerSkillDir()`
+  - [ ] Handle inbound: messages, slash commands, threads, reactions
+  - [ ] Handle outbound: send text, embeds with Discord markdown
+  - [ ] Write integration test with mock Discord gateway
+  - [ ] _Serves as the canonical example for implementing other channel plugins_
 
 ---
 
@@ -682,25 +694,27 @@
 
 ## Summary
 
-| Phase | Epics | Stories | Subtasks |
-|-------|-------|---------|----------|
-| **1. Core** | 4 | 25 | ~100 |
-| **2. Channels** | 2 | 8 | 32 |
-| **3. Skills & Tools** | 2 | 8 | 28 |
-| **4. Advanced** | 4 | 12 | 36 |
-| **5. Production** | 3 | 10 | 28 |
-| **Total** | **15** | **63** | **~225** |
+| Phase | Epics | Focus |
+|-------|-------|-------|
+| **1. Core** | 1–4 | Protocol, Gateway, Agent Engine, Sessions ✅ |
+| **2. Plugin System & WebChat** | 5–6 | Plugin API, WebChat UI |
+| **3. Skills & Tools** | 7–8 | Skills, Tools ✅ (mostly) |
+| **4. Advanced** | 9–12 | Orchestration, Cron, Built-in Plugins, Memory ✅ |
+| **5. Production** | 13–15 | Observability, Security, CLI |
+
+> Channel connectors (Discord, Telegram, Slack, etc.) are out of core scope.
+> They will be implemented as separate plugins using the Epic 5 plugin API.
 
 ### Dependency Chain
 
 ```
-Epic 1 (Protocol) ──→ Epic 2 (Gateway) ──→ Epic 3 (Agent Engine) ──→ Epic 5 (Channel Infra)
-                                      └──→ Epic 4 (Sessions)     └──→ Epic 6 (Connectors)
-                                                                  └──→ Epic 7 (Skills)
-                                                                  └──→ Epic 8 (Tools)
+Epic 1 (Protocol) ──→ Epic 2 (Gateway) ──→ Epic 3 (Agent Engine) ──→ Epic 5 (Plugin API)
+                                      └──→ Epic 4 (Sessions)     └──→ Epic 6 (WebChat Plugin)
+                                                                  └──→ Epic 7 (Skills) ✅
+                                                                  └──→ Epic 8 (Tools) ✅
                                                                   └──→ Epic 9 (Orchestrator)
                                                                   └──→ Epic 10 (Cron)
-                                                                  └──→ Epic 11 (Plugins)
-                                                                  └──→ Epic 12 (Memory)
+                                                                  └──→ Epic 11 (Built-in Plugins)
+                                                                  └──→ Epic 12 (Memory) ✅
                                                                   └──→ Epic 13-15 (Production)
 ```
