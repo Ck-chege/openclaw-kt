@@ -19,7 +19,18 @@ data class SkillsLoadConfig(
     val maxSkillsLoadedPerSource: Int = 200,
     val maxSkillsInPrompt: Int = 150,
     val maxSkillsPromptChars: Int = 30_000,
-    val maxSkillFileBytes: Int = 256_000
+    val maxSkillFileBytes: Int = 256_000,
+    /**
+     * How often (in ms) to perform a full filesystem fingerprint check as a safety net,
+     * even when the version counter hasn't changed (i.e., the watcher hasn't fired).
+     *
+     * This catches changes the watcher missed (OS delays, network filesystems, etc.)
+     * without paying the fingerprint cost on every single turn.
+     *
+     * Default: 30 seconds. Set to 0 to fingerprint on every turn (original behavior).
+     * Increase to 60_000+ for very large skill sets (500+ skills) on stable filesystems.
+     */
+    val fingerprintCheckIntervalMs: Long = 30_000L
 )
 
 @Serializable
