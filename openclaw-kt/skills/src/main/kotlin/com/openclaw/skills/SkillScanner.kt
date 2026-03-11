@@ -182,20 +182,36 @@ class SkillScanner(
             }
         }
 
+        /**
+         * Build the ordered list of skill source directories.
+         *
+         * Order is **highest-precedence first** so that the first-wins deduplication
+         * in [scanDetailedSources] gives the correct result. This mirrors the TS
+         * reference which uses a Map (last-write-wins) with the same logical precedence:
+         *
+         * ```
+         * WORKSPACE > AGENTS_PROJECT > AGENTS_PERSONAL > USER > PLUGIN > BUNDLED > EXTRA
+         * ```
+         *
+         * Workspace skills always win name conflicts; extra dirs are lowest priority.
+         */
         fun defaultSources(
             workspacePath: Path,
             config: SkillsConfig = SkillsConfig(),
             bundledSkillsPath: Path? = null,
             pluginSkillsPaths: List<Path> = emptyList()
         ): List<SkillDirectorySource> = buildList {
+            // Highest precedence first (first-wins dedup in scanDetailedSources)
+            add(SkillDirectorySource(workspacePath.resolve("skills"), SkillSource.WORKSPACE))
+            add(SkillDirectorySource(workspacePath.resolve(".agents").resolve("skills"), SkillSource.AGENTS_PROJECT))
+            add(SkillDirectorySource(Path.of(System.getProperty("user.home"), ".agents", "skills"), SkillSource.AGENTS_PERSONAL))
+            add(SkillDirectorySource(Path.of(System.getProperty("user.home"), ".openclawk", "skills"), SkillSource.USER))
+            pluginSkillsPaths.forEach { add(SkillDirectorySource(it, SkillSource.PLUGIN)) }
+            bundledSkillsPath?.let { add(SkillDirectorySource(it, SkillSource.BUNDLED)) }
             config.load.extraDirs
                 .map(::expandHome)
                 .map(Path::of)
                 .forEach { add(SkillDirectorySource(it, SkillSource.EXTRA)) }
-            bundledSkillsPath?.let { add(SkillDirectorySource(it, SkillSource.BUNDLED)) }
-            add(SkillDirectorySource(Path.of(System.getProperty("user.home"), ".openclawk", "skills"), SkillSource.USER))
-            pluginSkillsPaths.forEach { add(SkillDirectorySource(it, SkillSource.PLUGIN)) }
-            add(SkillDirectorySource(workspacePath.resolve("skills"), SkillSource.WORKSPACE))
         }
 
         private fun expandHome(path: String): String =

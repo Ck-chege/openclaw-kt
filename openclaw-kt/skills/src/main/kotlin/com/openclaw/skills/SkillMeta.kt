@@ -91,10 +91,12 @@ data class SkillResources(
 @Serializable
 enum class SkillSource {
     WORKSPACE,
+    AGENTS_PROJECT,
+    AGENTS_PERSONAL,
     USER,
+    PLUGIN,
     BUNDLED,
-    EXTRA,
-    PLUGIN
+    EXTRA
 }
 
 @Serializable

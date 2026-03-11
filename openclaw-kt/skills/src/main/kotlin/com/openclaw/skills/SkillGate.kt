@@ -18,6 +18,9 @@ class SkillGate(
      * Evaluate whether a skill is eligible to run in the current environment.
      */
     fun evaluate(skill: SkillMeta): SkillGateResult {
+        // always: true skills bypass all eligibility checks (matches TS evaluateRuntimeEligibility)
+        if (skill.always) return SkillGateResult.Eligible
+
         val requires = skill.requires
 
         // 1. OS check

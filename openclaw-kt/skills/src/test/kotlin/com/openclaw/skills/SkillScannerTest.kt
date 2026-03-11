@@ -189,7 +189,7 @@ class SkillScannerTest {
             val results = scanner.scan(listOf(dir))
             results shouldHaveSize 1
             results[0].resources.hasScripts shouldBe true
-            results[0].resources.scripts shouldBe listOf("run.sh")
+            results[0].resources.scripts shouldBe listOf("scripts/run.sh")
         }
 
         @Test
@@ -276,6 +276,88 @@ class SkillScannerTest {
             val dirs = SkillScanner.defaultDirectories(workspace, bundled)
             dirs shouldHaveSize 3
             dirs[2] shouldBe bundled
+        }
+    }
+
+    @Nested
+    inner class DefaultSources {
+
+        @Test
+        fun `workspace is first (highest precedence)`() {
+            val workspace = Path.of("/home/user/ws")
+            val sources = SkillScanner.defaultSources(workspace)
+            sources.first().source shouldBe SkillSource.WORKSPACE
+            sources.first().path shouldBe workspace.resolve("skills")
+        }
+
+        @Test
+        fun `agents_project is second`() {
+            val workspace = Path.of("/home/user/ws")
+            val sources = SkillScanner.defaultSources(workspace)
+            sources[1].source shouldBe SkillSource.AGENTS_PROJECT
+            sources[1].path shouldBe workspace.resolve(".agents").resolve("skills")
+        }
+
+        @Test
+        fun `agents_personal is third`() {
+            val workspace = Path.of("/home/user/ws")
+            val sources = SkillScanner.defaultSources(workspace)
+            sources[2].source shouldBe SkillSource.AGENTS_PERSONAL
+            sources[2].path shouldBe Path.of(System.getProperty("user.home"), ".agents", "skills")
+        }
+
+        @Test
+        fun `user is before bundled`() {
+            val workspace = Path.of("/home/user/ws")
+            val bundled = Path.of("/opt/openclaw/skills")
+            val sources = SkillScanner.defaultSources(workspace, bundledSkillsPath = bundled)
+            val userIdx = sources.indexOfFirst { it.source == SkillSource.USER }
+            val bundledIdx = sources.indexOfFirst { it.source == SkillSource.BUNDLED }
+            (userIdx < bundledIdx) shouldBe true
+        }
+
+        @Test
+        fun `extra dirs are last (lowest precedence)`() {
+            val workspace = Path.of("/home/user/ws")
+            val config = SkillsConfig(load = SkillsLoadConfig(extraDirs = listOf("/some/extra/skills")))
+            val sources = SkillScanner.defaultSources(workspace, config = config)
+            sources.last().source shouldBe SkillSource.EXTRA
+        }
+
+        @Test
+        fun `workspace skill overrides bundled skill with same name`() {
+            val workspaceSkillsDir = tempDir.resolve("workspace/skills").createDirectories()
+            val bundledSkillsDir = tempDir.resolve("bundled/skills").createDirectories()
+
+            createSkill(workspaceSkillsDir, "github", "github", description = "workspace github")
+            createSkill(bundledSkillsDir, "github", "github", description = "bundled github")
+
+            val workspaceDir = tempDir.resolve("workspace")
+            val scanner = SkillScanner(allEligibleGate())
+            val sources = SkillScanner.defaultSources(workspaceDir, bundledSkillsPath = bundledSkillsDir)
+            val results = scanner.scanSources(sources)
+
+            results shouldHaveSize 1
+            results[0].description shouldBe "workspace github"
+            results[0].source shouldBe SkillSource.WORKSPACE
+        }
+
+        @Test
+        fun `agents_project skill overrides bundled skill with same name`() {
+            val workspaceDir = tempDir.resolve("workspace")
+            val agentsProjectDir = workspaceDir.resolve(".agents/skills").createDirectories()
+            val bundledSkillsDir = tempDir.resolve("bundled/skills").createDirectories()
+
+            createSkill(agentsProjectDir, "weather", "weather", description = "agents-project weather")
+            createSkill(bundledSkillsDir, "weather", "weather", description = "bundled weather")
+
+            val scanner = SkillScanner(allEligibleGate())
+            val sources = SkillScanner.defaultSources(workspaceDir, bundledSkillsPath = bundledSkillsDir)
+            val results = scanner.scanSources(sources)
+
+            results shouldHaveSize 1
+            results[0].description shouldBe "agents-project weather"
+            results[0].source shouldBe SkillSource.AGENTS_PROJECT
         }
     }
 }

@@ -377,6 +377,34 @@
   - [x] Integrate into `WorkspaceLoader.assembleSystemPrompt()` at the skills section
   - [x] Write tests: XML output is compact, snapshot caches correctly, full load returns content
 
+- [ ] **7.4 Skills source parity & precedence fix**
+  > Fixes gaps vs TS reference found during audit (2026-03-11)
+
+  - [ ] **Fix precedence reversal** — `SkillScanner.scanDetailedSources()` uses a `seen` set (first-wins), but
+    `defaultSources()` adds WORKSPACE last, so workspace skills lose to bundled on name conflicts.
+    Reverse the deduplication logic: scan all sources, deduplicate giving priority to the last
+    (highest-precedence) occurrence — matching TS's `Map` overwrite behaviour.
+  - [ ] **Fix `always` flag bypass** — `SkillGate.evaluate()` runs all bin/env/os checks even on
+    `always: true` skills, which can block skills that should always be included. Add an early
+    `if (skill.always) return SkillGateResult.Eligible` before any checks, matching TS
+    `evaluateRuntimeEligibility` behaviour.
+  - [ ] **Add missing source dirs** — `defaultSources()` is missing two TS sources:
+    - `~/.agents/skills/` → `SkillSource.AGENTS_PERSONAL` (between USER and WORKSPACE)
+    - `{workspace}/.agents/skills/` → `SkillSource.AGENTS_PROJECT` (between AGENTS_PERSONAL and WORKSPACE)
+    Add both enum values and wire into `defaultSources()` in correct precedence position.
+  - [ ] **Add `bundledSkillsDir` auto-resolution** — KT currently takes `bundledSkillsPath: Path?` as a raw
+    parameter with no fallback. Implement `BundledSkillsResolver.resolve(): Path?` that mirrors TS
+    `resolveBundledSkillsDir()`:
+    1. `OPENCLAW_BUNDLED_SKILLS_DIR` env var override
+    2. `<executableDir>/skills/` (sibling to JAR/binary)
+    3. Walk class-path roots looking for a `skills/` dir containing `SKILL.md` subdirs
+    Wire into `Main.kt` startup so bundled skills are auto-discovered without explicit path config.
+  - [ ] Write/update tests for all four fixes:
+    - Workspace skill overrides same-named bundled skill
+    - `always: true` skill with missing binary is still eligible
+    - `~/.agents/skills/` and `{workspace}/.agents/skills/` appear in source list at correct precedence
+    - `BundledSkillsResolver` returns path when env var set, falls back to sibling dir
+
 ---
 
 ### Epic 8: Tools System

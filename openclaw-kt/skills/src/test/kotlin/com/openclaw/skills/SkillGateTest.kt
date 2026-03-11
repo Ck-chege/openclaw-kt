@@ -146,6 +146,70 @@ class SkillGateTest {
     }
 
     @Nested
+    inner class AlwaysFlag {
+
+        @Test
+        fun `always true skill is eligible even with missing binaries`() {
+            val gate = SkillGate(FakeEnvironmentChecker(binaries = emptySet()))
+            val alwaysSkill = SkillMeta(
+                frontmatter = SkillFrontmatter(
+                    name = "always-skill",
+                    always = true,
+                    requires = SkillRequirements(bins = listOf("missing-binary"))
+                ),
+                path = Path.of("/fake/SKILL.md"),
+                body = ""
+            )
+            gate.evaluate(alwaysSkill) shouldBe SkillGateResult.Eligible
+        }
+
+        @Test
+        fun `always true skill is eligible even with missing env vars`() {
+            val gate = SkillGate(FakeEnvironmentChecker(envVars = emptySet()))
+            val alwaysSkill = SkillMeta(
+                frontmatter = SkillFrontmatter(
+                    name = "always-skill",
+                    always = true,
+                    requires = SkillRequirements(env = listOf("MISSING_VAR"))
+                ),
+                path = Path.of("/fake/SKILL.md"),
+                body = ""
+            )
+            gate.evaluate(alwaysSkill) shouldBe SkillGateResult.Eligible
+        }
+
+        @Test
+        fun `always true skill is eligible even with wrong OS`() {
+            val gate = SkillGate(FakeEnvironmentChecker(os = "linux"))
+            val alwaysSkill = SkillMeta(
+                frontmatter = SkillFrontmatter(
+                    name = "always-skill",
+                    always = true,
+                    requires = SkillRequirements(os = listOf("windows"))
+                ),
+                path = Path.of("/fake/SKILL.md"),
+                body = ""
+            )
+            gate.evaluate(alwaysSkill) shouldBe SkillGateResult.Eligible
+        }
+
+        @Test
+        fun `always false skill is still gated normally`() {
+            val gate = SkillGate(FakeEnvironmentChecker(binaries = emptySet()))
+            val normalSkill = SkillMeta(
+                frontmatter = SkillFrontmatter(
+                    name = "normal-skill",
+                    always = false,
+                    requires = SkillRequirements(bins = listOf("missing-binary"))
+                ),
+                path = Path.of("/fake/SKILL.md"),
+                body = ""
+            )
+            gate.evaluate(normalSkill).shouldBeInstanceOf<SkillGateResult.Ineligible>()
+        }
+    }
+
+    @Nested
     inner class Combined {
 
         @Test
