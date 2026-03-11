@@ -5,6 +5,7 @@ import com.openclaw.agent.runtime.RunManager
 import com.openclaw.gateway.config.AgentsConfig
 import com.openclaw.protocol.identifiers.SessionKey
 import com.openclaw.session.SessionStore
+import com.openclaw.skills.SkillLoader
 import java.nio.file.Path
 
 /**
@@ -22,18 +23,22 @@ class NativeToolsProvider(
     private val runManager: RunManager,
     private val agentsConfig: () -> AgentsConfig,
     private val currentSessionKey: () -> SessionKey,
-    private val workspacePath: () -> Path = { Path.of(".") }
+    private val workspacePath: () -> Path = { Path.of(".") },
+    private val skillLoader: SkillLoader? = null
 ) {
     /**
      * Returns all native tools as a list. Each call creates fresh instances
      * so they can be scoped per-session if needed (e.g., different currentSessionKey).
      */
-    fun allTools(): List<Tool<*, *>> = listOf(
-        SessionsListTool(sessionStore),
-        SessionsHistoryTool(sessionStore),
-        SessionsSendTool(runManager),
-        SessionStatusTool(sessionStore, currentSessionKey),
-        AgentsListTool(agentsConfig),
-        CreateSkillTool(workspacePath)
-    )
+    fun allTools(): List<Tool<*, *>> = buildList {
+        add(SessionsListTool(sessionStore))
+        add(SessionsHistoryTool(sessionStore))
+        add(SessionsSendTool(runManager))
+        add(SessionStatusTool(sessionStore, currentSessionKey))
+        add(AgentsListTool(agentsConfig))
+        add(CreateSkillTool(workspacePath))
+        if (skillLoader != null) {
+            add(UseSkillTool(skillLoader, workspacePath))
+        }
+    }
 }

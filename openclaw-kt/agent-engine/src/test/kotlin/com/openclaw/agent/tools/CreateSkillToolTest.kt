@@ -264,7 +264,7 @@ class CreateSkillToolTest {
             val results = scanner.scan(listOf(tempDir.resolve("skills")))
             results.size shouldBe 1
             results[0].resources.hasScripts shouldBe true
-            results[0].resources.scripts shouldBe listOf("run.sh")
+            results[0].resources.scripts shouldBe listOf("scripts/run.sh")
         }
 
         @Test
@@ -282,9 +282,9 @@ class CreateSkillToolTest {
             val loader = SkillLoader(scanner)
             val snapshot = loader.buildSnapshot(tempDir)
             snapshot.promptXml shouldContain "has_scripts=\"true\""
-            snapshot.promptXml shouldContain "scripts=\"run.sh\""
+            snapshot.promptXml shouldContain "scripts=\"scripts/run.sh\""
             snapshot.promptXml shouldContain "has_references=\"true\""
-            snapshot.promptXml shouldContain "references=\"ref.md\""
+            snapshot.promptXml shouldContain "references=\"references/ref.md\""
         }
     }
 
