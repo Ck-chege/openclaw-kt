@@ -27,30 +27,30 @@ class SkillResourcesTest {
         }
 
         @Test
-        fun `scan directory with scripts returns script filenames`() {
+        fun `scan directory with scripts returns script relative paths`() {
             val dir = tempDir.resolve("with-scripts").createDirectories()
             val scriptsDir = dir.resolve("scripts").createDirectories()
             scriptsDir.resolve("init.sh").writeText("#!/bin/bash\necho hello")
             scriptsDir.resolve("deploy.py").writeText("print('deploying')")
 
             val resources = SkillResources.scan(dir)
-            resources.scripts shouldContainExactly listOf("deploy.py", "init.sh") // sorted
+            resources.scripts shouldContainExactly listOf("scripts/deploy.py", "scripts/init.sh") // sorted
             resources.hasScripts shouldBe true
             resources.references.shouldBeEmpty()
             resources.assets.shouldBeEmpty()
         }
 
         @Test
-        fun `scan directory with all resource types returns all filenames`() {
+        fun `scan directory with all resource types returns all relative paths`() {
             val dir = tempDir.resolve("full-skill").createDirectories()
             dir.resolve("scripts").createDirectories().resolve("run.sh").writeText("#!/bin/bash")
             dir.resolve("references").createDirectories().resolve("guide.md").writeText("# Guide")
             dir.resolve("assets").createDirectories().resolve("template.yml").writeText("key: value")
 
             val resources = SkillResources.scan(dir)
-            resources.scripts shouldContainExactly listOf("run.sh")
-            resources.references shouldContainExactly listOf("guide.md")
-            resources.assets shouldContainExactly listOf("template.yml")
+            resources.scripts shouldContainExactly listOf("scripts/run.sh")
+            resources.references shouldContainExactly listOf("references/guide.md")
+            resources.assets shouldContainExactly listOf("assets/template.yml")
             resources.isEmpty shouldBe false
         }
 
@@ -62,7 +62,7 @@ class SkillResourcesTest {
             scriptsDir.resolve("subdir").createDirectories().resolve("nested.sh").writeText("nested")
 
             val resources = SkillResources.scan(dir)
-            resources.scripts shouldContainExactly listOf("run.sh") // subdir excluded
+            resources.scripts shouldContainExactly listOf("scripts/run.sh") // subdir excluded
         }
     }
 
@@ -80,7 +80,7 @@ class SkillResourcesTest {
 
         @Test
         fun `flags reflect content`() {
-            val resources = SkillResources(scripts = listOf("run.sh"))
+            val resources = SkillResources(scripts = listOf("scripts/run.sh"))
             resources.hasScripts shouldBe true
             resources.hasReferences shouldBe false
             resources.hasAssets shouldBe false

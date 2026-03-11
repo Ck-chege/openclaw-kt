@@ -54,6 +54,11 @@ class SkillParserTest {
                 |description: Reviews code for best practices
                 |emoji: "\uD83D\uDD0D"
                 |always: false
+                |user-invocable: false
+                |disable-model-invocation: true
+                |command-dispatch: tool
+                |command-tool: sessions_send
+                |command-arg-mode: raw
                 |requires:
                 |  bins: [git, gh]
                 |  env: [GITHUB_TOKEN]
@@ -61,6 +66,9 @@ class SkillParserTest {
                 |openclaw:
                 |  version: "2.0"
                 |  tags: [dev, review]
+                |  homepage: "https://example.com/review"
+                |  skillKey: "review.skill"
+                |  primaryEnv: "GITHUB_TOKEN"
                 |---
                 |Review the code thoroughly.
                 """.trimMargin()
@@ -74,6 +82,14 @@ class SkillParserTest {
             result.requires.os shouldBe listOf("linux", "macos")
             result.frontmatter.openclaw.version shouldBe "2.0"
             result.frontmatter.openclaw.tags shouldBe listOf("dev", "review")
+            result.invocation.userInvocable shouldBe false
+            result.invocation.disableModelInvocation shouldBe true
+            result.invocation.commandDispatch shouldBe SkillCommandDispatch.TOOL
+            result.invocation.commandTool shouldBe "sessions_send"
+            result.invocation.commandArgMode shouldBe SkillCommandArgMode.RAW
+            result.homepage shouldBe "https://example.com/review"
+            result.skillKey shouldBe "review.skill"
+            result.primaryEnv shouldBe "GITHUB_TOKEN"
         }
 
         @Test

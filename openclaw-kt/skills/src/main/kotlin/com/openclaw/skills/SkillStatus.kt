@@ -29,6 +29,16 @@ data class SkillEntryState(
 )
 
 @Serializable
+data class SkillInvocationStatus(
+    val userInvocable: Boolean = true,
+    val disableModelInvocation: Boolean = false,
+    val commandName: String? = null,
+    val commandDispatch: SkillCommandDispatch? = null,
+    val commandTool: String? = null,
+    val commandArgMode: SkillCommandArgMode = SkillCommandArgMode.RAW
+)
+
+@Serializable
 data class SkillStatusEntry(
     val name: String,
     val skillKey: String,
@@ -46,7 +56,8 @@ data class SkillStatusEntry(
     val missing: SkillMissing = SkillMissing(),
     val configChecks: List<SkillConfigCheck> = emptyList(),
     val resources: SkillResources = SkillResources.EMPTY,
-    val entry: SkillEntryState = SkillEntryState()
+    val entry: SkillEntryState = SkillEntryState(),
+    val invocation: SkillInvocationStatus = SkillInvocationStatus()
 )
 
 @Serializable

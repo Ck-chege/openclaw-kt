@@ -79,7 +79,10 @@ object SkillParser {
             body = body,
             invocation = SkillInvocationPolicy(
                 userInvocable = frontmatter.userInvocable,
-                disableModelInvocation = frontmatter.disableModelInvocation
+                disableModelInvocation = frontmatter.disableModelInvocation,
+                commandDispatch = frontmatter.commandDispatch,
+                commandTool = frontmatter.commandTool,
+                commandArgMode = frontmatter.commandArgMode
             )
         )
     }

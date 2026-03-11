@@ -22,6 +22,12 @@ data class SkillFrontmatter(
     val userInvocable: Boolean = true,
     @SerialName("disable-model-invocation")
     val disableModelInvocation: Boolean = false,
+    @SerialName("command-dispatch")
+    val commandDispatch: SkillCommandDispatch? = null,
+    @SerialName("command-tool")
+    val commandTool: String? = null,
+    @SerialName("command-arg-mode")
+    val commandArgMode: SkillCommandArgMode = SkillCommandArgMode.RAW,
     val requires: SkillRequirements = SkillRequirements(),
     val openclaw: OpenClawSkillConfig = OpenClawSkillConfig()
 )
@@ -70,7 +76,7 @@ data class SkillResources(
                 if (!dir.exists() || !dir.isDirectory()) return emptyList()
                 return dir.listDirectoryEntries()
                     .filter { it.isRegularFile() }
-                    .map { it.fileName.toString() }
+                    .map { "$subdir/${it.fileName}" }
                     .sorted()
             }
             return SkillResources(
@@ -92,9 +98,24 @@ enum class SkillSource {
 }
 
 @Serializable
+enum class SkillCommandDispatch {
+    @SerialName("tool")
+    TOOL
+}
+
+@Serializable
+enum class SkillCommandArgMode {
+    @SerialName("raw")
+    RAW
+}
+
+@Serializable
 data class SkillInvocationPolicy(
     val userInvocable: Boolean = true,
-    val disableModelInvocation: Boolean = false
+    val disableModelInvocation: Boolean = false,
+    val commandDispatch: SkillCommandDispatch? = null,
+    val commandTool: String? = null,
+    val commandArgMode: SkillCommandArgMode = SkillCommandArgMode.RAW
 )
 
 /**
