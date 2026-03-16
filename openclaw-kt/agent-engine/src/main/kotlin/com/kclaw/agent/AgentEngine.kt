@@ -18,7 +18,7 @@ import com.kclaw.protocol.identifiers.SessionKey
 import com.kclaw.session.SessionStore
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.CoroutineStart
-import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.launch
@@ -90,7 +90,8 @@ class AgentEngine(
 
     /**
      * Start an agent run — delegates to [RunManager.startRun].
-     * Returns a cold [Flow] of [AgentEvent]s; the run starts on collection.
+     * Returns the [Job] backing the run; events are delivered via [onEvent].
+     * Do NOT collect a separate flow — each collection of the cold flow starts a new agent run.
      */
     suspend fun startRun(
         sessionKey: SessionKey,
@@ -103,7 +104,7 @@ class AgentEngine(
         skillsXml: String = "",
         toolDescriptions: List<ToolDescription> = emptyList(),
         onEvent: (suspend (AgentEvent) -> Unit)? = null
-    ): Flow<AgentEvent> = runManager.startRun(
+    ): Job = runManager.startRun(
         sessionKey = sessionKey,
         message = message,
         workspace = workspace,

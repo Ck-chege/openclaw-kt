@@ -5,13 +5,10 @@ import com.kclaw.agent.prompt.ToolDescription
 import com.kclaw.agent.workspace.WorkspaceLoader
 import com.kclaw.protocol.identifiers.ChatType
 import com.kclaw.protocol.dto.AgentEvent
-import com.kclaw.protocol.dto.QueueAction
 import com.kclaw.protocol.identifiers.ModelId
 import com.kclaw.protocol.identifiers.SessionKey
 import io.github.oshai.kotlinlogging.KotlinLogging
 import kotlinx.coroutines.*
-import kotlinx.coroutines.channels.Channel
-import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import java.util.concurrent.ConcurrentHashMap
@@ -23,6 +20,10 @@ private val logger = KotlinLogging.logger {}
  *
  * Only one run per session at a time — concurrent requests on the same session
  * wait for the mutex (serialized execution).
+ *
+ * Events are delivered exclusively via the [onEvent] callback. The returned [Job]
+ * provides a handle for tracking and cancellation; callers must NOT collect any
+ * separate flow, as each collection of [AgentRuntime.executeRun] starts a new agent run.
  */
 class RunManager(
     private val runtime: AgentRuntime,
@@ -35,6 +36,9 @@ class RunManager(
     /**
      * Start a new agent run for the given session.
      * Acquires per-session mutex to serialize concurrent run requests.
+     *
+     * Returns the [Job] backing the run — use it to track completion or cancel early.
+     * Events are delivered via [onEvent]; do not collect the cold flow separately.
      *
      * @param onEvent Optional callback invoked for each [AgentEvent] emitted during the run.
      *                Used to forward events to WebSocket clients.
@@ -51,23 +55,21 @@ class RunManager(
         toolDescriptions: List<ToolDescription> = emptyList(),
         prepareRun: (() -> (() -> Unit))? = null,
         onEvent: (suspend (AgentEvent) -> Unit)? = null
-    ): Flow<AgentEvent> {
+    ): Job {
         val mutex = sessionMutexes.getOrPut(sessionKey.raw) { Mutex() }
-        val queueChannel = Channel<QueueAction>(Channel.BUFFERED)
+        val events = runtime.executeRun(
+            sessionKey, message, workspace, modelId, channelName, chatType,
+            toolRegistry, skillsXml, toolDescriptions
+        )
 
-        val events = runtime.executeRun(sessionKey, message, workspace, modelId, channelName, chatType, toolRegistry, skillsXml, toolDescriptions)
-
-        // Create RunSession and register BEFORE launching the job to avoid
-        // a race where the job completes before activeRuns is populated,
-        // leaving a dead entry in the map.
-        val runSession = RunSession(
+        // Register a placeholder immediately so isRunActive() returns true as soon
+        // as startRun() is called — before the coroutine has a chance to launch.
+        val placeholder = RunSession(
             sessionKey = sessionKey,
-            job = Job(), // placeholder — replaced below
-            events = events,
-            queueChannel = queueChannel,
+            job = Job(),
             startTimeMs = System.currentTimeMillis()
         )
-        activeRuns[sessionKey.raw] = runSession
+        activeRuns[sessionKey.raw] = placeholder
 
         val job = scope.launch {
             mutex.withLock {
@@ -75,6 +77,7 @@ class RunManager(
                 val cleanup = prepareRun?.invoke()
                 try {
                     withTimeoutOrNull(timeoutMs) {
+                        // Single consumer of the cold flow — onEvent drives all delivery.
                         events.collect { event ->
                             onEvent?.invoke(event)
                         }
@@ -89,10 +92,14 @@ class RunManager(
             }
         }
 
-        // Update with actual job so stopRun/steer can cancel it
-        activeRuns[sessionKey.raw] = runSession.copy(job = job)
+        // Replace placeholder with actual job so stopRun/steer can cancel it.
+        activeRuns[sessionKey.raw] = RunSession(
+            sessionKey = sessionKey,
+            job = job,
+            startTimeMs = placeholder.startTimeMs
+        )
 
-        return events
+        return job
     }
 
     /**
@@ -104,7 +111,6 @@ class RunManager(
         if (run != null) {
             logger.info { "Stopping run for session: ${sessionKey.raw}" }
             run.job.cancel()
-            run.queueChannel.close()
         } else {
             logger.debug { "No active run to stop for session: ${sessionKey.raw}" }
         }
@@ -153,7 +159,6 @@ class RunManager(
         return try {
             logger.info { "Steering session ${sessionKey.raw}: cancelling run to inject message (${message.take(80)}...)" }
             run.job.cancel()
-            run.queueChannel.close()
             activeRuns.remove(sessionKey.raw)
             true
         } catch (e: Exception) {
