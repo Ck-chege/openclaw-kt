@@ -16,8 +16,8 @@ object AppPaths {
     /** Root of all KClaw data: ~/.kclaw/ */
     val base: Path get() = Path.of(System.getProperty("user.home"), BASE_DIR_NAME)
 
-    /** Config file: ~/.kclaw/kclaw.conf */
-    val config: Path get() = base.resolve("kclaw.conf")
+    /** Config file: ~/.kclaw/config.json */
+    val config: Path get() = base.resolve("config.json")
 
     /** Default workspace: ~/.kclaw/workspace/ */
     val workspace: Path get() = base.resolve("workspace")
