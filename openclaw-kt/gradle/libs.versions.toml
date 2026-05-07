@@ -12,8 +12,7 @@ kotlin-logging = "7.0.4"
 kotest = "5.9.1"
 clikt = "5.0.3"
 kaml = "0.67.0"
-typesafe-config = "1.4.3"
-koog = "0.6.3"
+koog = "0.7.0"
 jda = "5.3.0"
 slack = "1.45.3"
 telegram-bot = "8.0.0"
@@ -63,8 +62,6 @@ sqlite-jdbc = { module = "org.xerial:sqlite-jdbc", version.ref = "sqlite-jdbc" }
 kotlin-logging = { module = "io.github.oshai:kotlin-logging-jvm", version.ref = "kotlin-logging" }
 logback-classic = { module = "ch.qos.logback:logback-classic", version.ref = "logback" }
 
-# Config
-typesafe-config = { module = "com.typesafe:config", version.ref = "typesafe-config" }
 
 # CLI
 clikt = { module = "com.github.ajalt.clikt:clikt", version.ref = "clikt" }

@@ -25,6 +25,7 @@ class MethodScopeRegistryTest {
         fun `write methods require WRITE`() {
             MethodScopeRegistry.requiredScope("chat.send") shouldBe OperatorLevel.WRITE
             MethodScopeRegistry.requiredScope("agent.run") shouldBe OperatorLevel.WRITE
+            MethodScopeRegistry.requiredScope("sessions.ensure") shouldBe OperatorLevel.WRITE
             MethodScopeRegistry.requiredScope("skills.refresh") shouldBe OperatorLevel.WRITE
             MethodScopeRegistry.requiredScope("skills.update") shouldBe OperatorLevel.WRITE
         }

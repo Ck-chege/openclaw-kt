@@ -13,12 +13,13 @@ import { Input } from '@/components/ui/input';
 import { useChatStore } from '@/stores/chat-store';
 import { useConnectionStore } from '@/stores/connection-store';
 import { useDashboardStore } from '@/stores/dashboard-store';
+import { notify } from '@/lib/notifications';
 import { Plus } from 'lucide-react';
 
 export function NewSessionDialog() {
   const [open, setOpen] = useState(false);
   const [name, setName] = useState('');
-  const { setActiveSession, loadHistory, clearMessages } = useChatStore();
+  const { setActiveSession, ensureSession, loadHistory, clearMessages } = useChatStore();
   const { client } = useConnectionStore();
   const { fetchSessions } = useDashboardStore();
 
@@ -28,8 +29,14 @@ export function NewSessionDialog() {
     setActiveSession(key);
     clearMessages();
     if (client) {
-      await loadHistory(client);
-      await fetchSessions(client);
+      try {
+        await ensureSession(client, key);
+        await loadHistory(client);
+        await fetchSessions(client);
+      } catch (e) {
+        notify.rpcError('sessions.ensure', (e as Error).message);
+        return;
+      }
     }
     setName('');
     setOpen(false);

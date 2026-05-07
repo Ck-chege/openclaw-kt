@@ -11,11 +11,11 @@ import kotlinx.serialization.json.doubleOrNull
 import kotlinx.serialization.json.jsonPrimitive
 import kotlinx.serialization.json.Json
 
-private val configJson = Json { encodeDefaults = true }
+private val pathEvalJson = Json { encodeDefaults = true }
 
 fun GatewayConfig.isTruthyPath(path: String): Boolean {
     if (path.isBlank()) return false
-    val root = configJson.encodeToJsonElement(GatewayConfig.serializer(), this)
+    val root = pathEvalJson.encodeToJsonElement(GatewayConfig.serializer(), this)
     val resolved = resolveJsonPath(root, path) ?: return false
     return resolved.isTruthy()
 }

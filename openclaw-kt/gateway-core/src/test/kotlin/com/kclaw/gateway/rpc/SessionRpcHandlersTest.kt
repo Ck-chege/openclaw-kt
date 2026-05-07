@@ -139,6 +139,34 @@ class SessionRpcHandlersTest {
     }
 
     @Nested
+    inner class SessionsEnsure {
+
+        @Test
+        fun `sessions ensure creates a missing session`() = runRpc {
+            val key = SessionKey("main:main:*:main")
+            val params = buildJsonObject { put("key", key.raw) }
+
+            val result = router.route("sessions.ensure", params, "test-session")
+
+            result["created"]!!.jsonPrimitive.boolean shouldBe true
+            result["session"]!!.jsonObject["agentId"]!!.jsonPrimitive.content shouldBe "main"
+            store.getSession(key) shouldNotBe null
+        }
+
+        @Test
+        fun `sessions ensure is idempotent for existing session`() = runRpc {
+            val key = SessionKey("main:main:*:main")
+            store.createSession(key, "main")
+            val params = buildJsonObject { put("key", key.raw) }
+
+            val result = router.route("sessions.ensure", params, "test-session")
+
+            result["created"]!!.jsonPrimitive.boolean shouldBe false
+            store.listSessions().size shouldBe 1
+        }
+    }
+
+    @Nested
     inner class SessionsHistory {
 
         @Test
@@ -194,6 +222,16 @@ class SessionRpcHandlersTest {
             store.createSession(key, "main")
 
             val params = buildJsonObject { put("key", key.raw) }
+            val result = router.route("sessions.history", params, "test-session")
+
+            result["count"]!!.jsonPrimitive.int shouldBe 0
+            result["messages"]!!.jsonArray.size shouldBe 0
+        }
+
+        @Test
+        fun `sessions history returns empty for missing session`() = runRpc {
+            val params = buildJsonObject { put("key", "main:main:*:main") }
+
             val result = router.route("sessions.history", params, "test-session")
 
             result["count"]!!.jsonPrimitive.int shouldBe 0
@@ -256,9 +294,10 @@ class SessionRpcHandlersTest {
     inner class HandlerRegistration {
 
         @Test
-        fun `all five session handlers are registered`() {
+        fun `all six session handlers are registered`() {
             router.hasHandler("sessions.list") shouldBe true
             router.hasHandler("sessions.get") shouldBe true
+            router.hasHandler("sessions.ensure") shouldBe true
             router.hasHandler("sessions.history") shouldBe true
             router.hasHandler("sessions.delete") shouldBe true
             router.hasHandler("sessions.reset") shouldBe true

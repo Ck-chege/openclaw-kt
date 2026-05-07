@@ -1,3 +1,5 @@
+@file:OptIn(ExperimentalUuidApi::class)
+
 package com.kclaw.session.jsonl
 
 import com.kclaw.protocol.identifiers.SessionKey
@@ -10,9 +12,10 @@ import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
 import java.nio.file.Path
 import java.nio.file.StandardCopyOption
-import java.util.UUID
 import java.util.concurrent.ConcurrentHashMap
 import kotlin.io.path.*
+import kotlin.uuid.ExperimentalUuidApi
+import kotlin.uuid.Uuid
 
 /**
  * JSONL file-based [SessionStore] implementation.
@@ -145,7 +148,7 @@ class JsonlSessionProvider(private val sessionsDir: Path) : CompactableSessionSt
 
     override suspend fun createSession(key: SessionKey, agentId: String, channel: String?): SessionMeta =
         writeLock.withLock(key) {
-            val fileId = UUID.randomUUID().toString()
+            val fileId = Uuid.generateV7().toString()
             val meta = SessionMeta(
                 key = key,
                 agentId = agentId,
@@ -282,7 +285,7 @@ class JsonlSessionProvider(private val sessionsDir: Path) : CompactableSessionSt
 
         val oldActivePath = transcriptPath(meta.fileId)
         val archivedPath = archivedTranscriptPath(meta.fileId, summary.timestamp)
-        val newFileId = UUID.randomUUID().toString()
+        val newFileId = Uuid.generateV7().toString()
         val newActivePath = transcriptPath(newFileId)
         val tmp = sessionsDir / "$newFileId.tmp"
         tmp.writeText(newLines)

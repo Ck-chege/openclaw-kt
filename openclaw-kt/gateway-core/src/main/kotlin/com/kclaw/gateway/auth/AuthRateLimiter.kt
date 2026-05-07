@@ -2,6 +2,7 @@ package com.kclaw.gateway.auth
 
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.atomic.AtomicInteger
+import kotlin.time.Duration.Companion.minutes
 
 /**
  * Per-IP rate limiter for auth failures.
@@ -12,7 +13,7 @@ import java.util.concurrent.atomic.AtomicInteger
  */
 class AuthRateLimiter(
     private val maxAttempts: Int = 5,
-    private val windowMs: Long = 60_000L
+    private val windowMs: Long = 1.minutes.inWholeMilliseconds,
 ) {
     private data class Record(val count: AtomicInteger, val windowStart: Long)
     private val records = ConcurrentHashMap<String, Record>()

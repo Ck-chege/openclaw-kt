@@ -350,6 +350,35 @@ class GatewayServerTest {
         }
 
         @Test
+        fun `connect hello allows chat while bootstrap is still pending after config is ready`() = testApplication {
+            val gatewayServer = createTestServer(
+                setupStatus = SetupStatus(false, "BOOTSTRAP_SEEDED")
+            )
+            application {
+                with(gatewayServer) { configureApplication() }
+            }
+
+            val wsClient = createClient {
+                install(ClientWebSockets)
+            }
+
+            wsClient.webSocket("/") {
+                val helloFrame = Frame.Request(
+                    id = "hello-bootstrap-pending",
+                    method = "connect.hello",
+                    params = JsonObject(mapOf("role" to JsonPrimitive("operator")))
+                )
+                send(io.ktor.websocket.Frame.Text(Frame.serialize(helloFrame)))
+
+                val resp = (incoming.receive() as io.ktor.websocket.Frame.Text).readText()
+                val parsed = Frame.deserialize(resp) as Frame.Response
+                parsed.ok shouldBe true
+                (parsed.payload["setupRequired"] as JsonPrimitive).boolean shouldBe false
+                (parsed.payload["onboardingPhase"] as JsonPrimitive).content shouldBe "BOOTSTRAP_SEEDED"
+            }
+        }
+
+        @Test
         fun `connect hello includes setupRequired false after setup`() = testApplication {
             val gatewayServer = createTestServer(
                 setupStatus = SetupStatus(false, "ONBOARDING_COMPLETE")

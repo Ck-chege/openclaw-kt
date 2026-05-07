@@ -1,9 +1,13 @@
+@file:OptIn(ExperimentalUuidApi::class)
+
 package com.kclaw.gateway.auth
 
 import com.kclaw.protocol.identifiers.OperatorLevel
 import io.github.oshai.kotlinlogging.KotlinLogging
 import java.util.UUID
 import kotlin.text.Charsets.UTF_8
+import kotlin.uuid.ExperimentalUuidApi
+import kotlin.uuid.Uuid
 
 private val logger = KotlinLogging.logger {}
 
@@ -19,6 +23,17 @@ sealed class ClientRole {
 
     /** An anonymous web chat participant. */
     data object WebChat : ClientRole()
+
+    companion object {
+        fun fromWire(role: String?, deviceId: String? = null): ClientRole? =
+            when (role?.lowercase()) {
+                "operator" -> Operator(level = OperatorLevel.WRITE)
+                "node" -> Node(deviceId = deviceId ?: UUID.randomUUID().toString())
+                "webchat" -> WebChat
+                null -> Operator(level = OperatorLevel.WRITE)
+                else -> null
+            }
+    }
 }
 
 /**
@@ -30,6 +45,12 @@ data class WsSession(
     val scopes: Set<String>,
     val isAuthenticated: Boolean
 )
+
+fun  ClientRole.toScope() = when (this) {
+    is ClientRole.Operator -> setOf("chat", "config", "agents", "tools", "admin")
+    is ClientRole.Node -> setOf("chat", "agents")
+    is ClientRole.WebChat -> setOf("chat")
+}
 
 /**
  * Handles authentication during the WebSocket connect handshake.
@@ -57,10 +78,10 @@ class GatewayAuth(private val token: String?, private val password: String?) {
      * Authenticate a connecting client.
      *
      * @param providedToken The token sent by the client in the connect.hello frame.
-     * @param role The requested role string: "operator", "node", or "webchat".
+     * @param clientRole The already-parsed client role.
      * @return A [WsSession] on success, or `null` if authentication fails.
      */
-    fun authenticate(providedToken: String?, role: String?, deviceId: String? = null): WsSession? {
+    fun authenticate(providedToken: String?, clientRole: ClientRole): WsSession? {
         // If no auth is configured, allow all connections
         val authRequired = token != null || password != null
 
@@ -71,35 +92,19 @@ class GatewayAuth(private val token: String?, private val password: String?) {
                 else -> false
             }
             if (!valid) {
-                logger.warn { "Authentication failed for role=$role" }
+                logger.warn { "Authentication failed for role=$clientRole" }
                 return null
             }
         }
 
-        val clientRole = when (role?.lowercase()) {
-            "operator" -> ClientRole.Operator(level = OperatorLevel.WRITE)
-            "node" -> ClientRole.Node(deviceId = deviceId ?: UUID.randomUUID().toString())
-            "webchat" -> ClientRole.WebChat
-            null -> ClientRole.Operator(level = OperatorLevel.WRITE)
-            else -> {
-                logger.warn { "Unknown role requested: $role" }
-                return null
-            }
-        }
-
-        val scopes = when (clientRole) {
-            is ClientRole.Operator -> setOf("chat", "config", "agents", "tools", "admin")
-            is ClientRole.Node -> setOf("chat", "agents")
-            is ClientRole.WebChat -> setOf("chat")
-        }
 
         val session = WsSession(
-            id = UUID.randomUUID().toString(),
+            id = Uuid.random().toString(),
             role = clientRole,
-            scopes = scopes,
+            scopes = clientRole.toScope(),
             isAuthenticated = authRequired
         )
-        logger.info { "Authenticated session ${session.id} with role=$role" }
+        logger.info { "Authenticated session ${session.id} with role=$clientRole" }
         return session
     }
 }

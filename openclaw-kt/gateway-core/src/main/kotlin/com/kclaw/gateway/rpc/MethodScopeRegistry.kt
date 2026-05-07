@@ -23,7 +23,7 @@ object MethodScopeRegistry {
         // WRITE-scoped methods
         listOf(
             "chat.send", "chat.abort", "sessions.send",
-            "wake", "agent.run", "setup.configure", "skills.refresh", "skills.update"
+            "wake", "agent.run", "sessions.ensure", "setup.configure", "skills.refresh", "skills.update"
         ).forEach { put(it, OperatorLevel.WRITE) }
 
         // APPROVALS-scoped methods

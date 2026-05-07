@@ -22,7 +22,6 @@ import com.kclaw.gateway.rpc.registerSetupHandlers
 import com.kclaw.gateway.ws.SetupStatus
 import com.kclaw.protocol.identifiers.SessionKey
 import com.kclaw.session.compaction.CompactableSessionStore
-import com.kclaw.session.compaction.CompactionConfig
 import com.kclaw.session.compaction.CompactionEngine
 import com.kclaw.session.compaction.CompactionResult
 import com.kclaw.session.composite.CompositeSessionStore
@@ -64,9 +63,12 @@ fun main() {
     logger.info { "KClaw v0.1.0-SNAPSHOT" }
 
     // Ensure base directory and default config exist
-    ensureDefaultConfig()
+    setUpProjectRootFolder()
 
+
+    // Config Setup
     val configPath = AppPaths.config
+
     val configManager = ConfigManager(configPath)
     val config = configManager.load()
 
@@ -255,11 +257,15 @@ fun main() {
     // Config writer for setup handlers
     val configWriter = ConfigWriter(configPath)
 
-    // Setup status provider — checks workspace phase
+    // Setup status provider — blocks only on missing config, while onboardingPhase
+    // continues to reflect BOOTSTRAP.md lifecycle until the file is deleted.
     val setupStatusProvider: () -> SetupStatus = {
         val phase = workspaceBootstrap.currentState().phase.name
+        val secrets = configManager.config.value.secrets
+        val hasAnthropicKey = !secrets.anthropicApiKey.isNullOrBlank() || System.getenv("ANTHROPIC_API_KEY") != null
+        val hasOpenaiKey = !secrets.openaiApiKey.isNullOrBlank() || System.getenv("OPENAI_API_KEY") != null
         SetupStatus(
-            setupRequired = phase != "ONBOARDING_COMPLETE",
+            setupRequired = !hasAnthropicKey && !hasOpenaiKey,
             onboardingPhase = phase
         )
     }
@@ -308,8 +314,7 @@ fun main() {
         router = gateway.router,
         configManager = configManager,
         configWriter = configWriter,
-        setupStatusProvider = { workspaceBootstrap.currentState().phase.name },
-        markOnboardingComplete = { workspaceBootstrap.markOnboardingComplete() }
+        setupStatusProvider = { workspaceBootstrap.currentState().phase.name }
     )
 
     gateway.start()
@@ -332,20 +337,14 @@ fun main() {
 }
 
 /**
- * Ensures ~/.kclaw/ exists and seeds kclaw.conf if missing.
- * The generated file at ~/.kclaw/kclaw.conf is the single source of truth.
+ * Ensures ~/.kclaw/ exists and also config.json if missing.
+ * The generated file at ~/.kclaw/config.json is the single source of truth.
  */
-private fun ensureDefaultConfig() {
+private fun setUpProjectRootFolder() {
     val baseDir = AppPaths.base
     if (!baseDir.toFile().exists()) {
         baseDir.toFile().mkdirs()
         logger.info { "Created base directory: $baseDir" }
-    }
-
-    val configFile = AppPaths.config
-    if (!configFile.toFile().exists()) {
-        configFile.toFile().writeText(DEFAULT_CONFIG)
-        logger.info { "Generated default config: $configFile" }
     }
 }
 
@@ -397,87 +396,7 @@ private fun buildModelCatalog(
     }
 }
 
-private val DEFAULT_CONFIG = """
-# ──────────────────────────────────────────────────────────────────────
-# KClaw Configuration (HOCON format)
-# ──────────────────────────────────────────────────────────────────────
-# This is the single config file. Edit values below to customize.
-# Changes are hot-reloaded (no restart needed unless reload.mode = OFF).
-# Environment variables: use ${'$'}{ENV_VAR} syntax.
-# All values shown are defaults — uncomment and change as needed.
-# ──────────────────────────────────────────────────────────────────────
 
-gateway {
-    # port = 18789
-    # bind = "127.0.0.1"
-
-    auth {
-        # token = "your-secret-token"
-        # password = "your-password"
-    }
-
-    reload {
-        # mode = "HYBRID"  # HYBRID | HOT | RESTART | OFF
-    }
-}
-
-agents {
-    defaults {
-        # model = "anthropic:claude-sonnet-4"
-        # workspace = "~/.kclaw/workspace"
-        # compaction = "safeguard"
-        # maxConcurrentRuns = 4
-    }
-
-    # list = [
-    #     { id = "telegram", model = "anthropic:claude-haiku-4-5" }
-    # ]
-}
-
-tools {
-    # profile = "full"
-    # allow = []
-    # deny = []
-
-    sandbox {
-        # enabled = false
-    }
-
-    loopDetection {
-        # enabled = true
-        # repeatWarning = 10
-        # repeatCritical = 20
-        # circuitBreaker = 30
-    }
-
-    # mcp = [
-    #     { name = "server", transport = "stdio", command = "/path/to/server" }
-    # ]
-}
-
-secrets {
-    # anthropicApiKey = "sk-ant-..."
-    # openaiApiKey = "sk-..."
-}
-
-memory {
-    # enabled = true
-    # provider = "openai"
-    # model = "text-embedding-3-small"
-}
-
-cron {
-    # enabled = true
-}
-
-persistence {
-    # enabled = true
-
-    sqlite {
-        # path = "~/.kclaw/checkpoints.sqlite"
-    }
-}
-""".trimIndent()
 
 private fun resolveConfiguredPath(configuredPath: String): Path =
     Path.of(configuredPath.replace("~", System.getProperty("user.home")))

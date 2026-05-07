@@ -1,4 +1,4 @@
-package com.kclaw.agent.model
+ package com.kclaw.agent.model
 
 import ai.koog.prompt.executor.clients.LLMClient
 import ai.koog.prompt.executor.clients.retry.RetryConfig

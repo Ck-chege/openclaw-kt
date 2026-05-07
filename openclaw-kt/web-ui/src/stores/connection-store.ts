@@ -15,7 +15,7 @@ interface ConnectionStore {
 
   connect: (url?: string, token?: string, role?: 'operator' | 'webchat' | 'node') => void;
   disconnect: () => void;
-  clearSetupRequired: () => void;
+  clearSetupRequired: (onboardingPhase?: string | null) => void;
 }
 
 export const useConnectionStore = create<ConnectionStore>((set, get) => ({
@@ -56,7 +56,10 @@ export const useConnectionStore = create<ConnectionStore>((set, get) => ({
     set({ state: 'disconnected', client: null, wsSessionId: null, setupRequired: false, onboardingPhase: null });
   },
 
-  clearSetupRequired: () => {
-    set({ setupRequired: false, onboardingPhase: null });
+  clearSetupRequired: (onboardingPhase) => {
+    set((state) => ({
+      setupRequired: false,
+      onboardingPhase: onboardingPhase ?? state.onboardingPhase,
+    }));
   },
 }));

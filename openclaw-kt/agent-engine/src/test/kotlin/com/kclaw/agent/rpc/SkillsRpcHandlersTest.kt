@@ -57,7 +57,7 @@ class SkillsRpcHandlersTest {
     }
 
     private fun createRouter(skillsConfig: SkillsConfig = SkillsConfig()): Pair<RpcRouter, ConfigManager> {
-        val configPath = tempDir.resolve("kclaw.conf")
+        val configPath = tempDir.resolve("kclaw.json")
         val writer = ConfigWriter(configPath)
         val manager = ConfigManager(configPath)
         writer.write(
@@ -184,7 +184,7 @@ class SkillsRpcHandlersTest {
             result["skillKey"]!!.jsonPrimitive.content shouldBe "search"
             manager.config.value.skills.entries["search"]?.enabled shouldBe false
             manager.config.value.skills.entries["search"]?.apiKey shouldBe "search-api-key"
-            tempDir.resolve("kclaw.conf").readText().contains("skills {") shouldBe true
+            tempDir.resolve("kclaw.json").readText().contains("\"skills\"") shouldBe true
         }
     }
 }

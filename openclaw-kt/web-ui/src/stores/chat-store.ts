@@ -19,6 +19,7 @@ interface ChatStore {
   pendingApprovals: number;
 
   setActiveSession: (key: string) => void;
+  ensureSession: (client: GatewayClient, key?: string) => Promise<void>;
   loadHistory: (client: GatewayClient) => Promise<void>;
   sendMessage: (client: GatewayClient, text: string, modelId?: string) => Promise<void>;
   stopAgent: (client: GatewayClient) => Promise<void>;
@@ -83,6 +84,11 @@ export const useChatStore = create<ChatStore>((set, get) => ({
     set({ activeSessionKey: key, messages: [], isStreaming: false, error: null });
   },
 
+  ensureSession: async (client: GatewayClient, key?: string) => {
+    const sessionKey = key ?? get().activeSessionKey;
+    await client.request('sessions.ensure', { key: sessionKey });
+  },
+
   loadHistory: async (client: GatewayClient) => {
     const { activeSessionKey } = get();
     try {
@@ -99,7 +105,7 @@ export const useChatStore = create<ChatStore>((set, get) => ({
   },
 
   sendMessage: async (client: GatewayClient, text: string, modelId?: string) => {
-    const { activeSessionKey, messages } = get();
+    const { activeSessionKey, messages, ensureSession } = get();
     const userMsg: ChatMessage = {
       id: crypto.randomUUID(),
       role: 'user',
@@ -122,6 +128,7 @@ export const useChatStore = create<ChatStore>((set, get) => ({
     });
 
     try {
+      await ensureSession(client, activeSessionKey);
       const params: Record<string, string> = {
         key: activeSessionKey,
         message: text,

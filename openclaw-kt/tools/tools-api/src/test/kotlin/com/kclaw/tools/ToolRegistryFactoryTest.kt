@@ -67,16 +67,16 @@ class ToolRegistryFactoryTest {
     private val factory = ToolRegistryFactory(ToolPolicyPipeline(), allTools)
 
     @Test
-    fun `builds registry with all tools when profile is full and no restrictions`() {
+    fun `builds registry without approval-required tools when profile is full`() {
         val registry = factory.buildRegistry(ToolsConfig(), callerContext = defaultCaller)
-        registry.tools.map { it.name }.shouldContainExactlyInAnyOrder("read", "write", "exec", "create_skill")
+        registry.tools.map { it.name }.shouldContainExactlyInAnyOrder("read", "create_skill")
     }
 
     @Test
     fun `filters out denied tools`() {
         val config = ToolsConfig(deny = listOf("exec"))
         val registry = factory.buildRegistry(config, callerContext = defaultCaller)
-        registry.tools.map { it.name }.shouldContainExactlyInAnyOrder("read", "write", "create_skill")
+        registry.tools.map { it.name }.shouldContainExactlyInAnyOrder("read", "create_skill")
     }
 
     @Test
@@ -109,36 +109,36 @@ class ToolRegistryFactoryTest {
             callerContext = CallerContext(provider = "openai")
         )
 
-        registry.tools.map { it.name }.shouldContainExactlyInAnyOrder("read", "write", "create_skill")
+        registry.tools.map { it.name }.shouldContainExactlyInAnyOrder("read", "create_skill")
     }
 
     @Test
     fun `owner-only tools are excluded for non-owner callers`() {
         val registry = factory.buildRegistry(ToolsConfig(), callerContext = CallerContext(isOwner = false))
 
-        registry.tools.map { it.name }.shouldContainExactlyInAnyOrder("read", "write", "exec", "create_skill")
+        registry.tools.map { it.name }.shouldContainExactlyInAnyOrder("read", "create_skill")
     }
 
     @Test
-    fun `owner-only tools are included for owner callers`() {
+    fun `approval-required owner tools are excluded until approved execution is available`() {
         val registry = factory.buildRegistry(ToolsConfig(), callerContext = CallerContext(isOwner = true))
 
         registry.tools.map { it.name }
-            .shouldContainExactlyInAnyOrder("read", "write", "exec", "sessions_send", "create_skill")
+            .shouldContainExactlyInAnyOrder("read", "create_skill")
     }
 
     @Test
     fun `buildDescriptions excludes owner-only tools for non-owner callers`() {
         val descriptions = factory.buildDescriptions(ToolsConfig(), callerContext = CallerContext(isOwner = false))
 
-        descriptions.map { it.first }.shouldContainExactlyInAnyOrder("read", "write", "exec", "create_skill")
+        descriptions.map { it.first }.shouldContainExactlyInAnyOrder("read", "create_skill")
     }
 
     @Test
-    fun `buildDescriptions includes owner-only tools for owner callers`() {
+    fun `buildDescriptions excludes approval-required tools for owner callers`() {
         val descriptions = factory.buildDescriptions(ToolsConfig(), callerContext = CallerContext(isOwner = true))
 
-        descriptions.map { it.first }.shouldContainExactlyInAnyOrder("read", "write", "exec", "sessions_send", "create_skill")
+        descriptions.map { it.first }.shouldContainExactlyInAnyOrder("read", "create_skill")
     }
 
     @Test

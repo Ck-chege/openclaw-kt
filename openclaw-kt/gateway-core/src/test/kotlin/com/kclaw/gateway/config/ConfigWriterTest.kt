@@ -2,7 +2,6 @@ package com.kclaw.gateway.config
 
 import com.kclaw.skills.SkillEntryConfig
 import com.kclaw.skills.SkillsConfig
-import com.typesafe.config.ConfigFactory
 import io.kotest.matchers.shouldBe
 import io.kotest.matchers.string.shouldContain
 import io.kotest.matchers.string.shouldNotContain
@@ -18,21 +17,30 @@ class ConfigWriterTest {
     lateinit var tempDir: Path
 
     private fun writer(): ConfigWriter {
-        val configPath = tempDir.resolve("kclaw.conf")
+        val configPath = tempDir.resolve("kclaw.json")
         return ConfigWriter(configPath)
     }
 
-    private fun configPath(): Path = tempDir.resolve("kclaw.conf")
+    private fun configPath(): Path = tempDir.resolve("kclaw.json")
+
+    /** Parse the written JSON back using the same decoder as ConfigManager. */
+    private fun parseWritten(): GatewayConfig =
+        configJson.decodeFromString<GatewayConfig>(configPath().readText())
 
     @Nested
     inner class WriteDefaults {
 
         @Test
-        fun `writing all-defaults produces empty config`() {
+        fun `writing all-defaults produces full config that round-trips to defaults`() {
             writer().write(GatewayConfig())
-            val content = configPath().readText()
-            // All defaults — no sections written
-            content.isBlank() shouldBe true
+            val content = configPath().readText().trim()
+            // encodeDefaults=true means all sections are written
+            content shouldContain "gateway"
+            content shouldContain "agents"
+            content shouldContain "tools"
+            content shouldContain "memory"
+            content shouldContain "providers"
+            configJson.decodeFromString<GatewayConfig>(content) shouldBe GatewayConfig()
         }
     }
 
@@ -46,7 +54,7 @@ class ConfigWriterTest {
             )
             writer().write(config)
             val content = configPath().readText()
-            content shouldContain "port = 9999"
+            content shouldContain "9999"
         }
 
         @Test
@@ -56,7 +64,7 @@ class ConfigWriterTest {
             )
             writer().write(config)
             val content = configPath().readText()
-            content shouldContain "token = \"my-secret\""
+            content shouldContain "my-secret"
         }
 
         @Test
@@ -66,8 +74,7 @@ class ConfigWriterTest {
             )
             writer().write(config)
             val content = configPath().readText()
-            content shouldContain "secrets {"
-            content shouldContain "anthropicApiKey = \"sk-ant-123\""
+            content shouldContain "sk-ant-123"
         }
 
         @Test
@@ -77,8 +84,8 @@ class ConfigWriterTest {
             )
             writer().write(config)
             val content = configPath().readText()
-            content shouldContain "anthropicApiKey = \"sk-ant-123\""
-            content shouldContain "openaiApiKey = \"sk-456\""
+            content shouldContain "sk-ant-123"
+            content shouldContain "sk-456"
         }
 
         @Test
@@ -88,7 +95,7 @@ class ConfigWriterTest {
             )
             writer().write(config)
             val content = configPath().readText()
-            content shouldContain "model = \"openai:gpt-4o\""
+            content shouldContain "openai:gpt-4o"
         }
 
         @Test
@@ -110,15 +117,11 @@ class ConfigWriterTest {
             writer().write(config)
             val content = configPath().readText()
 
-            content shouldContain "skills {"
-            content shouldContain "allowBundled = [\"search\"]"
-            content shouldContain "entries {"
-            content shouldContain "\"search\" {"
-            content shouldContain "enabled = false"
-            content shouldContain "apiKey = \"skill-api-key\""
-            content shouldContain "\"SEARCH_TOKEN\" = \"token-1\""
+            content shouldContain "search"
+            content shouldContain "skill-api-key"
+            content shouldContain "SEARCH_TOKEN"
 
-            val parsed = ConfigFactory.parseFile(configPath().toFile()).toGatewayConfig()
+            val parsed = parseWritten()
             parsed.skills.allowBundled shouldBe listOf("search")
             parsed.skills.entries["search"]?.enabled shouldBe false
             parsed.skills.entries["search"]?.apiKey shouldBe "skill-api-key"
@@ -142,7 +145,7 @@ class ConfigWriterTest {
     inner class RoundTrip {
 
         @Test
-        fun `written config can be parsed back by typesafe config`() {
+        fun `written config can be parsed back`() {
             val config = GatewayConfig(
                 gateway = GatewaySettings(
                     port = 8080,
@@ -153,8 +156,7 @@ class ConfigWriterTest {
             )
             writer().write(config)
 
-            val parsed = ConfigFactory.parseFile(configPath().toFile())
-            val roundTripped = parsed.toGatewayConfig()
+            val roundTripped = parseWritten()
 
             roundTripped.gateway.port shouldBe 8080
             roundTripped.gateway.auth.token shouldBe "test-token"
@@ -192,7 +194,7 @@ class ConfigWriterTest {
 
             w.update(initial) { it.copy(secrets = it.secrets.copy(openaiApiKey = "new-openai")) }
 
-            val parsed = ConfigFactory.parseFile(configPath().toFile()).toGatewayConfig()
+            val parsed = parseWritten()
             parsed.secrets.anthropicApiKey shouldBe "old-key"
             parsed.secrets.openaiApiKey shouldBe "new-openai"
         }
@@ -214,11 +216,10 @@ class ConfigWriterTest {
             )
             writer().write(config)
             val content = configPath().readText()
-            content shouldContain "list = ["
-            content shouldContain "id = \"agent-1\""
-            content shouldContain "id = \"agent-2\""
+            content shouldContain "agent-1"
+            content shouldContain "agent-2"
 
-            val parsed = ConfigFactory.parseFile(configPath().toFile()).toGatewayConfig()
+            val parsed = parseWritten()
             parsed.agents.list.size shouldBe 2
             parsed.agents.list[0].id shouldBe "agent-1"
             parsed.agents.list[0].model shouldBe "anthropic:claude-sonnet-4"
@@ -238,14 +239,11 @@ class ConfigWriterTest {
             )
             writer().write(config)
             val content = configPath().readText()
-            content shouldContain "tools {"
-            content shouldContain "profile = \"minimal\""
-            content shouldContain "allow = [\"bash\", \"read\"]"
-            content shouldContain "deny = [\"write\"]"
-            content shouldContain "sandbox {"
-            content shouldContain "enabled = true"
+            content shouldContain "minimal"
+            content shouldContain "bash"
+            content shouldContain "write"
 
-            val parsed = ConfigFactory.parseFile(configPath().toFile()).toGatewayConfig()
+            val parsed = parseWritten()
             parsed.tools.profile shouldBe "minimal"
             parsed.tools.allow shouldBe listOf("bash", "read")
             parsed.tools.deny shouldBe listOf("write")
@@ -263,11 +261,9 @@ class ConfigWriterTest {
             )
             writer().write(config)
             val content = configPath().readText()
-            content shouldContain "persistence {"
-            content shouldContain "sqlite {"
-            content shouldContain "path = \"/tmp/checkpoints.sqlite\""
+            content shouldContain "checkpoints.sqlite"
 
-            val parsed = ConfigFactory.parseFile(configPath().toFile()).toGatewayConfig()
+            val parsed = parseWritten()
             parsed.persistence.enabled shouldBe true
             parsed.persistence.sqlite.path shouldBe "/tmp/checkpoints.sqlite"
         }
@@ -286,7 +282,7 @@ class ConfigWriterTest {
             content shouldContain "\\n"
             content shouldContain "\\r"
 
-            val parsed = ConfigFactory.parseFile(configPath().toFile()).toGatewayConfig()
+            val parsed = parseWritten()
             parsed.gateway.auth.token shouldBe "line1\nline2\rline3"
         }
 
@@ -299,8 +295,7 @@ class ConfigWriterTest {
             val content = configPath().readText()
             content shouldContain "has\\\"quote"
 
-            // Should still parse
-            val parsed = ConfigFactory.parseFile(configPath().toFile()).toGatewayConfig()
+            val parsed = parseWritten()
             parsed.gateway.auth.token shouldBe "has\"quote"
         }
 
@@ -311,7 +306,7 @@ class ConfigWriterTest {
             )
             writer().write(config)
 
-            val parsed = ConfigFactory.parseFile(configPath().toFile()).toGatewayConfig()
+            val parsed = parseWritten()
             parsed.gateway.auth.token shouldBe "has\\backslash"
         }
     }

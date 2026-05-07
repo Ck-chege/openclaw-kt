@@ -2,12 +2,13 @@ package com.kclaw.session.sqlite
 
 import ai.koog.agents.snapshot.feature.AgentCheckpointData
 import ai.koog.agents.snapshot.providers.filters.AgentCheckpointPredicateFilter
+import ai.koog.prompt.message.Message
 import io.kotest.core.spec.style.FunSpec
 import io.kotest.matchers.collections.shouldHaveSize
 import io.kotest.matchers.nulls.shouldBeNull
 import io.kotest.matchers.shouldBe
 import io.kotest.matchers.shouldNotBe
-import kotlinx.serialization.json.JsonNull
+import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 import java.nio.file.Files
 import kotlin.io.path.deleteIfExists
@@ -22,13 +23,14 @@ class SqliteKoogPersistenceProviderTest : FunSpec({
         createdAt: String,
         tombstone: Boolean = false
     ): Pair<String, AgentCheckpointData> {
-        val properties = if (tombstone) mapOf("tombstone" to JsonPrimitive(true)) else null
+        val properties = if (tombstone) JsonObject(mapOf("tombstone" to JsonPrimitive(true))) else null
         return agentId to AgentCheckpointData(
             checkpointId = id,
             createdAt = Instant.parse(createdAt),
             nodePath = if (tombstone) "tombstone" else "node-$version",
-            lastInput = JsonNull,
-            messageHistory = emptyList(),
+            lastInput = null,
+            lastOutput = JsonPrimitive("output-$id"),
+            messageHistory = emptyList<Message>(),
             version = version,
             properties = properties
         )

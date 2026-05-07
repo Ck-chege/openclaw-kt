@@ -15,7 +15,6 @@ dependencies {
     implementation(libs.kotlinx.coroutines.core)
     implementation(libs.kotlinx.serialization.json)
     implementation(libs.kotlinx.datetime)
-    implementation(libs.typesafe.config)
 
     implementation(libs.bundles.logging)
 

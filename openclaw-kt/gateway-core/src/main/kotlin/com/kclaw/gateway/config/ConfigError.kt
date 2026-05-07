@@ -9,7 +9,7 @@ import java.nio.file.Path
 sealed class ConfigError(message: String, cause: Throwable? = null) : Exception(message, cause) {
 
     /**
-     * The HOCON file could not be parsed — bad syntax, unresolved substitutions, or I/O error.
+     * The JSON config file could not be parsed — bad syntax or I/O error.
      */
     class FileParseError(
         val path: Path,

@@ -39,60 +39,75 @@ class ModelRegistry(
     }
 
     private fun registerBuiltinModels() {
-        // Anthropic models
-        register(ModelDefinition(ModelId("anthropic:claude-sonnet-4"), "anthropic", "claude-sonnet-4", "Claude Sonnet 4", 200_000))
-        register(ModelDefinition(ModelId("anthropic:claude-sonnet-4-5"), "anthropic", "claude-sonnet-4-5", "Claude Sonnet 4.5", 200_000))
-        register(ModelDefinition(ModelId("anthropic:claude-opus-4"), "anthropic", "claude-opus-4", "Claude Opus 4", 200_000))
-        register(ModelDefinition(ModelId("anthropic:claude-opus-4-1"), "anthropic", "claude-opus-4-1", "Claude Opus 4.1", 200_000))
-        register(ModelDefinition(ModelId("anthropic:claude-opus-4-5"), "anthropic", "claude-opus-4-5", "Claude Opus 4.5", 200_000))
-        register(ModelDefinition(ModelId("anthropic:claude-opus-4-6"), "anthropic", "claude-opus-4-6", "Claude Opus 4.6", 200_000))
-        register(ModelDefinition(ModelId("anthropic:claude-haiku-4-5"), "anthropic", "claude-haiku-4-5", "Claude Haiku 4.5", 200_000))
-        register(ModelDefinition(ModelId("anthropic:claude-sonnet-3-7"), "anthropic", "claude-sonnet-3-7", "Claude Sonnet 3.7", 200_000))
-        register(ModelDefinition(ModelId("anthropic:claude-sonnet-3-5"), "anthropic", "claude-sonnet-3-5", "Claude Sonnet 3.5", 200_000))
-        register(ModelDefinition(ModelId("anthropic:claude-sonnet-4-6"), "anthropic", "claude-sonnet-4-6", "Claude Sonnet 4.6", 200_000))
+        // Phase 1: Auto-import from Koog's maintained model catalogs.
+        // New models added to Koog are picked up automatically.
+        importKoogCatalog("anthropic", AnthropicModels.models)
+        importKoogCatalog("openai", OpenAIModels.models)
+        importKoogCatalog("google", GoogleModels.models)
+        importKoogCatalog("deepseek", DeepSeekModels.models)
+        importKoogCatalog("mistral", MistralAIModels.models)
+        importKoogCatalog("openrouter", OpenRouterModels.models)
 
-        // OpenAI models
-        register(ModelDefinition(ModelId("openai:gpt-4o"), "openai", "gpt-4o", "GPT-4o", 128_000))
-        register(ModelDefinition(ModelId("openai:gpt-4.1"), "openai", "gpt-4.1", "GPT-4.1", 1_047_576))
-        register(ModelDefinition(ModelId("openai:gpt-4.1-mini"), "openai", "gpt-4.1-mini", "GPT-4.1 Mini", 1_047_576))
-        register(ModelDefinition(ModelId("openai:gpt-4.1-nano"), "openai", "gpt-4.1-nano", "GPT-4.1 Nano", 1_047_576))
-        register(ModelDefinition(ModelId("openai:o3"), "openai", "o3", "O3", 200_000))
-        register(ModelDefinition(ModelId("openai:o3-mini"), "openai", "o3-mini", "O3 Mini", 200_000))
-        register(ModelDefinition(ModelId("openai:o4-mini"), "openai", "o4-mini", "O4 Mini", 200_000))
-        register(ModelDefinition(ModelId("openai:gpt-5"), "openai", "gpt-5", "GPT-5", 1_047_576))
-        register(ModelDefinition(ModelId("openai:gpt-5.2"), "openai", "gpt-5.2", "GPT-5.2", 400_000))
-        register(ModelDefinition(ModelId("openai:gpt-5.2-pro"), "openai", "gpt-5.2-pro", "GPT-5.2 Pro", 400_000))
-        register(ModelDefinition(ModelId("openai:gpt-5.2-codex"), "openai", "gpt-5.2-codex", "GPT-5.2-Codex", 400_000))
-        register(ModelDefinition(ModelId("openai:gpt-5.2-chat-latest"), "openai", "gpt-5.2-chat-latest", "GPT-5.2 Chat", 128_000))
-        register(ModelDefinition(ModelId("openai:gpt-5.3-codex"), "openai", "gpt-5.3-codex", "GPT-5.3-Codex", 400_000))
-        register(ModelDefinition(ModelId("openai:gpt-5.3-chat-latest"), "openai", "gpt-5.3-chat-latest", "GPT-5.3 Chat", 128_000))
-        register(ModelDefinition(ModelId("openai:gpt-5.4"), "openai", "gpt-5.4", "GPT-5.4", 1_050_000))
-        register(ModelDefinition(ModelId("openai:gpt-5.4-pro"), "openai", "gpt-5.4-pro", "GPT-5.4 Pro", 1_050_000))
+        // Phase 2: Fill in models not yet in Koog catalogs.
+        // registerIfAbsent is a no-op for models already imported above.
+        // Remove entries here as Koog adds them.
 
-        // Google Gemini models
-        register(ModelDefinition(ModelId("google:gemini-2.5-pro"), "google", "gemini-2.5-pro", "Gemini 2.5 Pro", 1_048_576))
-        register(ModelDefinition(ModelId("google:gemini-2.5-flash"), "google", "gemini-2.5-flash", "Gemini 2.5 Flash", 1_048_576))
-        register(ModelDefinition(ModelId("google:gemini-2.5-flash-lite"), "google", "gemini-2.5-flash-lite", "Gemini 2.5 Flash Lite", 1_048_576))
-        register(ModelDefinition(ModelId("google:gemini-2.0-flash"), "google", "gemini-2.0-flash", "Gemini 2.0 Flash", 1_048_576))
+        // Anthropic — models not yet in Koog 0.7.0
+        registerIfAbsent(ModelDefinition(ModelId("anthropic:claude-sonnet-4-6"), "anthropic", "claude-sonnet-4-6", "Claude Sonnet 4.6", 200_000))
+        registerIfAbsent(ModelDefinition(ModelId("anthropic:claude-opus-4-6"), "anthropic", "claude-opus-4-6", "Claude Opus 4.6", 200_000))
 
-        // DeepSeek models
-        register(ModelDefinition(ModelId("deepseek:deepseek-chat"), "deepseek", "deepseek-chat", "DeepSeek Chat", 64_000))
-        register(ModelDefinition(ModelId("deepseek:deepseek-reasoner"), "deepseek", "deepseek-reasoner", "DeepSeek Reasoner", 64_000))
+        // OpenAI — models not yet in Koog 0.7.0
+        registerIfAbsent(ModelDefinition(ModelId("openai:gpt-5.4"), "openai", "gpt-5.4", "GPT-5.4", 1_050_000))
+        registerIfAbsent(ModelDefinition(ModelId("openai:gpt-5.4-pro"), "openai", "gpt-5.4-pro", "GPT-5.4 Pro", 1_050_000))
 
-        // Mistral models
-        register(ModelDefinition(ModelId("mistral:mistral-medium-latest"), "mistral", "mistral-medium-latest", "Mistral Medium 3.1", 128_000))
-        register(ModelDefinition(ModelId("mistral:mistral-large-latest"), "mistral", "mistral-large-latest", "Mistral Large 2.1", 128_000))
-        register(ModelDefinition(ModelId("mistral:mistral-small-latest"), "mistral", "mistral-small-latest", "Mistral Small 2", 32_000))
-        register(ModelDefinition(ModelId("mistral:magistral-medium-latest"), "mistral", "magistral-medium-latest", "Magistral Medium 1.2", 128_000))
-        register(ModelDefinition(ModelId("mistral:codestral-latest"), "mistral", "codestral-latest", "Codestral", 256_000))
-        register(ModelDefinition(ModelId("mistral:devstral-medium-latest"), "mistral", "devstral-medium-latest", "Devstral Medium", 128_000))
+        // Google Gemini
+        registerIfAbsent(ModelDefinition(ModelId("google:gemini-2.5-pro"), "google", "gemini-2.5-pro", "Gemini 2.5 Pro", 1_048_576))
+        registerIfAbsent(ModelDefinition(ModelId("google:gemini-2.5-flash"), "google", "gemini-2.5-flash", "Gemini 2.5 Flash", 1_048_576))
+        registerIfAbsent(ModelDefinition(ModelId("google:gemini-2.5-flash-lite"), "google", "gemini-2.5-flash-lite", "Gemini 2.5 Flash Lite", 1_048_576))
+        registerIfAbsent(ModelDefinition(ModelId("google:gemini-2.0-flash"), "google", "gemini-2.0-flash", "Gemini 2.0 Flash", 1_048_576))
 
-        // OpenRouter models
-        register(ModelDefinition(ModelId("openrouter:anthropic/claude-sonnet-4.5"), "openrouter", "anthropic/claude-sonnet-4.5", "OpenRouter Claude Sonnet 4.5", 1_000_000))
-        register(ModelDefinition(ModelId("openrouter:anthropic/claude-opus-4.5"), "openrouter", "anthropic/claude-opus-4.5", "OpenRouter Claude Opus 4.5", 200_000))
-        register(ModelDefinition(ModelId("openrouter:openai/gpt-5"), "openrouter", "openai/gpt-5", "OpenRouter GPT-5", 400_000))
-        register(ModelDefinition(ModelId("openrouter:openai/gpt-5-mini"), "openrouter", "openai/gpt-5-mini", "OpenRouter GPT-5 Mini", 400_000))
-        register(ModelDefinition(ModelId("openrouter:microsoft/phi-4-reasoning:free"), "openrouter", "microsoft/phi-4-reasoning:free", "OpenRouter Phi-4 Reasoning (Free)", 32_768))
+        // DeepSeek
+        registerIfAbsent(ModelDefinition(ModelId("deepseek:deepseek-chat"), "deepseek", "deepseek-chat", "DeepSeek Chat", 64_000))
+        registerIfAbsent(ModelDefinition(ModelId("deepseek:deepseek-reasoner"), "deepseek", "deepseek-reasoner", "DeepSeek Reasoner", 64_000))
+
+        // Mistral
+        registerIfAbsent(ModelDefinition(ModelId("mistral:mistral-medium-latest"), "mistral", "mistral-medium-latest", "Mistral Medium", 128_000))
+        registerIfAbsent(ModelDefinition(ModelId("mistral:mistral-large-latest"), "mistral", "mistral-large-latest", "Mistral Large", 128_000))
+        registerIfAbsent(ModelDefinition(ModelId("mistral:mistral-small-latest"), "mistral", "mistral-small-latest", "Mistral Small", 32_000))
+        registerIfAbsent(ModelDefinition(ModelId("mistral:magistral-medium-latest"), "mistral", "magistral-medium-latest", "Magistral Medium", 128_000))
+        registerIfAbsent(ModelDefinition(ModelId("mistral:codestral-latest"), "mistral", "codestral-latest", "Codestral", 256_000))
+        registerIfAbsent(ModelDefinition(ModelId("mistral:devstral-medium-latest"), "mistral", "devstral-medium-latest", "Devstral Medium", 128_000))
+
+        // OpenRouter
+        registerIfAbsent(ModelDefinition(ModelId("openrouter:anthropic/claude-sonnet-4.5"), "openrouter", "anthropic/claude-sonnet-4.5", "OpenRouter Claude Sonnet 4.5", 1_000_000))
+        registerIfAbsent(ModelDefinition(ModelId("openrouter:anthropic/claude-opus-4.5"), "openrouter", "anthropic/claude-opus-4.5", "OpenRouter Claude Opus 4.5", 200_000))
+        registerIfAbsent(ModelDefinition(ModelId("openrouter:openai/gpt-5"), "openrouter", "openai/gpt-5", "OpenRouter GPT-5", 400_000))
+        registerIfAbsent(ModelDefinition(ModelId("openrouter:openai/gpt-5-mini"), "openrouter", "openai/gpt-5-mini", "OpenRouter GPT-5 Mini", 400_000))
+        registerIfAbsent(ModelDefinition(ModelId("openrouter:microsoft/phi-4-reasoning:free"), "openrouter", "microsoft/phi-4-reasoning:free", "OpenRouter Phi-4 Reasoning (Free)", 32_768))
+    }
+
+    /**
+     * Imports all models from a Koog provider catalog, creating [ModelDefinition] entries
+     * with display names derived from model IDs and context lengths from Koog metadata.
+     */
+    private fun importKoogCatalog(providerPrefix: String, models: List<LLModel>) {
+        for (model in models) {
+            register(ModelDefinition(
+                id = ModelId("$providerPrefix:${model.id}"),
+                provider = providerPrefix,
+                modelName = model.id,
+                displayName = formatDisplayName(model.id),
+                maxContextTokens = (model.contextLength ?: 200_000L).toInt()
+            ))
+        }
+        logger.debug { "Imported ${models.size} models from Koog catalog: $providerPrefix" }
+    }
+
+    /**
+     * Registers a model only if not already present (e.g. not already imported from Koog).
+     */
+    private fun registerIfAbsent(definition: ModelDefinition) {
+        catalog.putIfAbsent(definition.id.raw, definition)
     }
 
     fun register(definition: ModelDefinition) {
@@ -210,5 +225,47 @@ class ModelRegistry(
                 KoogLLMProvider.OpenAI -> OPENAI_AGENT_CAPABILITIES
                 else -> DEFAULT_AGENT_CAPABILITIES
             }
+
+        /**
+         * Derives a human-readable display name from a model ID string.
+         * Handles GPT-style ("gpt-4o" -> "GPT-4o"), o-series ("o3-mini" -> "O3 Mini"),
+         * DeepSeek, and generic dash-separated names with version dot-joining.
+         */
+        private fun formatDisplayName(modelId: String): String {
+            // OpenRouter slash-separated IDs: "anthropic/claude-sonnet-4.5"
+            if ('/' in modelId) {
+                val model = modelId.substringAfter("/")
+                return "OpenRouter ${formatDisplayName(model)}"
+            }
+            // GPT models: "gpt-4o" -> "GPT-4o", "gpt-4.1-mini" -> "GPT-4.1 Mini"
+            if (modelId.startsWith("gpt-")) {
+                val rest = modelId.removePrefix("gpt-")
+                val parts = rest.split("-")
+                val version = parts.first()
+                val suffix = parts.drop(1).joinToString(" ") { it.replaceFirstChar { c -> c.uppercase() } }
+                return if (suffix.isEmpty()) "GPT-$version" else "GPT-$version $suffix"
+            }
+            // O-series: "o3" -> "O3", "o3-mini" -> "O3 Mini"
+            if (modelId.matches(Regex("^o\\d.*"))) {
+                return modelId.split("-").joinToString(" ") { it.replaceFirstChar { c -> c.uppercase() } }
+            }
+            // Default: split on hyphens, join consecutive digit-only segments with "."
+            val parts = modelId.split("-")
+            return buildString {
+                for ((i, part) in parts.withIndex()) {
+                    if (i > 0) {
+                        val prev = parts[i - 1]
+                        if (prev.all { it.isDigit() } && part.all { it.isDigit() }) append(".")
+                        else append(" ")
+                    }
+                    append(when {
+                        part.equals("deepseek", ignoreCase = true) -> "DeepSeek"
+                        part.equals("ai", ignoreCase = true) -> "AI"
+                        part.all { it.isDigit() || it == '.' } -> part
+                        else -> part.replaceFirstChar { it.uppercase() }
+                    })
+                }
+            }
+        }
     }
 }

@@ -23,7 +23,9 @@ private val logger = KotlinLogging.logger {}
 
 /**
  * Setup status communicated to clients in the `connect.hello` response.
- * When [setupRequired] is true, the client should show the onboarding UI.
+ * When [setupRequired] is true, prerequisite configuration is still missing and
+ * the client should show the setup UI. [onboardingPhase] continues to report
+ * bootstrap progress independently.
  */
 data class SetupStatus(
     val setupRequired: Boolean,
@@ -169,7 +171,20 @@ class WebSocketHandler(
             val role = firstFrame.params["role"]?.jsonPrimitive?.contentOrNull
             val deviceId = firstFrame.params["deviceId"]?.jsonPrimitive?.contentOrNull
 
-            session = auth.authenticate(providedToken, role, deviceId)
+            val clientRole = ClientRole.fromWire(role, deviceId)
+                ?: run {
+                    logger.warn { "Unknown role requested during handshake: $role" }
+                    val errorResponse = Frame.Response(
+                        id = firstFrame.id,
+                        ok = false,
+                        payload = JsonObject(mapOf("error" to JsonPrimitive("Unknown client role")))
+                    )
+                    wsSession.send(io.ktor.websocket.Frame.Text(Frame.serialize(errorResponse)))
+                    wsSession.close(CloseReason(CloseReason.Codes.CANNOT_ACCEPT, "Unknown client role"))
+                    return
+                }
+
+            session = auth.authenticate(providedToken, clientRole)
 
             if (session == null) {
                 // Step 3b: Auth failed

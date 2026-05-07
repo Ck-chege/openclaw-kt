@@ -63,10 +63,10 @@ export function SetupWizard() {
       params.model = defaultModel;
 
       await client.request('setup.configure', params);
-      await client.request('setup.complete', {});
+      const result = await client.request('setup.complete', {});
 
-      clearSetupRequired();
-      notify.success('Setup complete! Welcome to KClaw.');
+      clearSetupRequired((result.onboardingPhase as string | null) ?? null);
+      notify.success('Setup complete. Bootstrap will continue in chat.');
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Setup failed');
     } finally {

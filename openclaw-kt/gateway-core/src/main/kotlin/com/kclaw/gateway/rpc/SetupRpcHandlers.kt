@@ -12,7 +12,9 @@ private val logger = KotlinLogging.logger {}
  * Data class representing setup status for the client.
  */
 data class SetupStatusInfo(
+    /** True when prerequisite configuration is still missing and chat should stay blocked. */
     val setupRequired: Boolean,
+    /** Workspace onboarding phase; may still be BOOTSTRAP_SEEDED after setupRequired becomes false. */
     val onboardingPhase: String,
     val hasAnthropicKey: Boolean,
     val hasOpenaiKey: Boolean,
@@ -26,12 +28,11 @@ data class SetupStatusInfo(
  * Methods:
  * - `setup.status` — returns current setup status and what's configured
  * - `setup.configure` — writes config values (token, API keys, model)
- * - `setup.complete` — marks onboarding complete (if requirements met)
+ * - `setup.complete` — validates config readiness and hands off to chat/bootstrap
  *
  * @param configManager provides current config and reload capability
  * @param configWriter writes updated config to disk
  * @param setupStatusProvider returns the current onboarding phase
- * @param markOnboardingComplete transitions workspace state to ONBOARDING_COMPLETE
  * @param apiKeyChecker checks if API keys are available (config or env vars)
  */
 fun registerSetupHandlers(
@@ -39,22 +40,26 @@ fun registerSetupHandlers(
     configManager: ConfigManager,
     configWriter: ConfigWriter,
     setupStatusProvider: () -> String,
-    markOnboardingComplete: () -> Unit,
     apiKeyChecker: (String) -> Boolean = { envVar ->
         System.getenv(envVar) != null
     }
 ) {
+    fun configReady(): Pair<Boolean, Boolean> {
+        val config = configManager.config.value
+        val hasAnthropicKey = !config.secrets.anthropicApiKey.isNullOrBlank() || apiKeyChecker("ANTHROPIC_API_KEY")
+        val hasOpenaiKey = !config.secrets.openaiApiKey.isNullOrBlank() || apiKeyChecker("OPENAI_API_KEY")
+        return hasAnthropicKey to hasOpenaiKey
+    }
 
     // setup.status -- Return current setup state and what's configured
     router.register("setup.status") { _, _ ->
         logger.debug { "Handling setup.status" }
         val config = configManager.config.value
         val phase = setupStatusProvider()
-        val hasAnthropicKey = !config.secrets.anthropicApiKey.isNullOrBlank() || apiKeyChecker("ANTHROPIC_API_KEY")
-        val hasOpenaiKey = !config.secrets.openaiApiKey.isNullOrBlank() || apiKeyChecker("OPENAI_API_KEY")
+        val (hasAnthropicKey, hasOpenaiKey) = configReady()
 
         buildJsonObject {
-            put("setupRequired", JsonPrimitive(phase != "ONBOARDING_COMPLETE"))
+            put("setupRequired", JsonPrimitive(!hasAnthropicKey && !hasOpenaiKey))
             put("onboardingPhase", JsonPrimitive(phase))
             put("hasAnthropicKey", JsonPrimitive(hasAnthropicKey))
             put("hasOpenaiKey", JsonPrimitive(hasOpenaiKey))
@@ -110,23 +115,21 @@ fun registerSetupHandlers(
         }
     }
 
-    // setup.complete -- Mark onboarding as complete (if requirements met)
+    // setup.complete -- Validate config readiness; BOOTSTRAP.md still governs onboarding completion
     router.register("setup.complete") { _, _ ->
         logger.debug { "Handling setup.complete" }
-        val config = configManager.config.value
-        val hasAnthropicKey = !config.secrets.anthropicApiKey.isNullOrBlank() || apiKeyChecker("ANTHROPIC_API_KEY")
-        val hasOpenaiKey = !config.secrets.openaiApiKey.isNullOrBlank() || apiKeyChecker("OPENAI_API_KEY")
+        val (hasAnthropicKey, hasOpenaiKey) = configReady()
 
         if (!hasAnthropicKey && !hasOpenaiKey) {
             throw IllegalArgumentException("At least one API key (Anthropic or OpenAI) must be configured before completing setup")
         }
 
-        markOnboardingComplete()
-        logger.info { "Onboarding marked complete" }
+        val phase = setupStatusProvider()
+        logger.info { "Setup prerequisites satisfied; onboarding phase remains $phase until BOOTSTRAP.md is deleted" }
 
         buildJsonObject {
             put("completed", JsonPrimitive(true))
-            put("onboardingPhase", JsonPrimitive("ONBOARDING_COMPLETE"))
+            put("onboardingPhase", JsonPrimitive(phase))
         }
     }
 }

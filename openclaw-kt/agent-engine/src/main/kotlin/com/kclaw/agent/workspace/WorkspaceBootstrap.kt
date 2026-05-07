@@ -55,8 +55,10 @@ class  WorkspaceBootstrap(
     }
 
     /**
-     * Marks onboarding as complete. Called by setup.complete RPC handler
-     * after the user has configured required values (API keys, auth token).
+     * Explicitly marks onboarding as complete.
+     *
+     * Normal completion happens when BOOTSTRAP.md is deleted and [ensureWorkspace]
+     * observes that transition. This override is kept for exceptional/manual flows.
      *
      * Returns the updated state, or the current state if already complete.
      */
@@ -69,7 +71,7 @@ class  WorkspaceBootstrap(
             onboardingCompletedAt = clock.now()
         )
         saveState(completeState)
-        logger.info { "Onboarding marked complete via setup" }
+        logger.info { "Onboarding marked complete via explicit override" }
         return completeState
     }
 

@@ -14,7 +14,7 @@ import { Toaster } from 'sonner';
 
 export function AppShell() {
   const { state, client, connect, setupRequired } = useConnectionStore();
-  const { registerEventHandlers, loadHistory } = useChatStore();
+  const { registerEventHandlers, ensureSession, loadHistory } = useChatStore();
   const { fetchSessions, fetchConfig, fetchModels } = useDashboardStore();
   const cleanupRef = useRef<(() => void) | null>(null);
   const hasAttemptedRef = useRef(false);
@@ -39,10 +39,17 @@ export function AppShell() {
     if (state === 'connected' && client) {
       hasAttemptedRef.current = true;
       cleanupRef.current = registerEventHandlers(client);
-      loadHistory(client);
-      fetchSessions(client);
-      fetchConfig(client);
-      fetchModels(client);
+      void (async () => {
+        try {
+          await ensureSession(client);
+        } catch {
+          // Missing initial session is handled by sessions.history fallback.
+        }
+        await loadHistory(client);
+        await fetchSessions(client);
+        await fetchConfig(client);
+        await fetchModels(client);
+      })();
     }
     return () => {
       if (cleanupRef.current) {
@@ -50,14 +57,14 @@ export function AppShell() {
         cleanupRef.current = null;
       }
     };
-  }, [state, client, registerEventHandlers, loadHistory, fetchSessions, fetchConfig, fetchModels]);
+  }, [state, client, registerEventHandlers, ensureSession, loadHistory, fetchSessions, fetchConfig, fetchModels]);
 
   // Show connect dialog if never attempted
   if (!hasAttemptedRef.current && state === 'disconnected') {
     return <ConnectDialog />;
   }
 
-  // Show setup wizard if onboarding is required
+  // Show setup wizard only while required configuration is missing.
   if (state === 'connected' && setupRequired) {
     return <SetupWizard />;
   }

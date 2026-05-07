@@ -1,7 +1,6 @@
 package com.kclaw.gateway.rpc
 
 import com.kclaw.gateway.config.*
-import com.typesafe.config.ConfigFactory
 import io.kotest.matchers.shouldBe
 import kotlinx.coroutines.test.runTest
 import kotlinx.serialization.json.JsonObject
@@ -21,7 +20,7 @@ class SetupRpcHandlersTest {
     lateinit var tempDir: Path
 
     private fun createConfigManager(config: GatewayConfig = GatewayConfig()): ConfigManager {
-        val configPath = tempDir.resolve("kclaw.conf")
+        val configPath = tempDir.resolve("kclaw.json")
         // Write a parseable config from the given config object
         ConfigWriter(configPath).write(config)
         val manager = ConfigManager(configPath)
@@ -32,17 +31,15 @@ class SetupRpcHandlersTest {
     private fun setupRouter(
         configManager: ConfigManager,
         phase: String = "BOOTSTRAP_SEEDED",
-        onComplete: () -> Unit = {},
         apiKeyChecker: (String) -> Boolean = { false }
     ): RpcRouter {
         val router = RpcRouter()
-        val configWriter = ConfigWriter(tempDir.resolve("kclaw.conf"))
+        val configWriter = ConfigWriter(tempDir.resolve("kclaw.json"))
         registerSetupHandlers(
             router = router,
             configManager = configManager,
             configWriter = configWriter,
             setupStatusProvider = { phase },
-            markOnboardingComplete = onComplete,
             apiKeyChecker = apiKeyChecker
         )
         return router
@@ -62,12 +59,14 @@ class SetupRpcHandlersTest {
         }
 
         @Test
-        fun `completed setup returns setupRequired false`() = runTest {
-            val cm = createConfigManager()
-            val router = setupRouter(cm, phase = "ONBOARDING_COMPLETE")
+        fun `configured install returns setupRequired false even while bootstrap is pending`() = runTest {
+            val config = GatewayConfig(secrets = SecretsConfig(anthropicApiKey = "sk-ant-123"))
+            val cm = createConfigManager(config)
+            val router = setupRouter(cm, phase = "BOOTSTRAP_SEEDED")
 
             val result = router.route("setup.status", JsonObject(emptyMap()), "test-session")
             result["setupRequired"]!!.jsonPrimitive.boolean shouldBe false
+            result["onboardingPhase"]!!.jsonPrimitive.content shouldBe "BOOTSTRAP_SEEDED"
         }
 
         @Test
@@ -216,30 +215,37 @@ class SetupRpcHandlersTest {
 
         @Test
         fun `complete succeeds when anthropic key configured`() = runTest {
-            var completedCalled = false
             val config = GatewayConfig(secrets = SecretsConfig(anthropicApiKey = "sk-ant-123"))
             val cm = createConfigManager(config)
-            val router = setupRouter(cm, onComplete = { completedCalled = true })
+            val router = setupRouter(cm)
 
             val result = router.route("setup.complete", JsonObject(emptyMap()), "test-session")
             result["completed"]!!.jsonPrimitive.boolean shouldBe true
-            result["onboardingPhase"]!!.jsonPrimitive.content shouldBe "ONBOARDING_COMPLETE"
-            completedCalled shouldBe true
+            result["onboardingPhase"]!!.jsonPrimitive.content shouldBe "BOOTSTRAP_SEEDED"
         }
 
         @Test
         fun `complete succeeds when openai key in env`() = runTest {
-            var completedCalled = false
             val cm = createConfigManager()
             val router = setupRouter(
                 cm,
-                onComplete = { completedCalled = true },
                 apiKeyChecker = { it == "OPENAI_API_KEY" }
             )
 
             val result = router.route("setup.complete", JsonObject(emptyMap()), "test-session")
             result["completed"]!!.jsonPrimitive.boolean shouldBe true
-            completedCalled shouldBe true
+            result["onboardingPhase"]!!.jsonPrimitive.content shouldBe "BOOTSTRAP_SEEDED"
+        }
+
+        @Test
+        fun `complete preserves completed onboarding phase when bootstrap is already done`() = runTest {
+            val config = GatewayConfig(secrets = SecretsConfig(anthropicApiKey = "sk-ant-123"))
+            val cm = createConfigManager(config)
+            val router = setupRouter(cm, phase = "ONBOARDING_COMPLETE")
+
+            val result = router.route("setup.complete", JsonObject(emptyMap()), "test-session")
+            result["completed"]!!.jsonPrimitive.boolean shouldBe true
+            result["onboardingPhase"]!!.jsonPrimitive.content shouldBe "ONBOARDING_COMPLETE"
         }
 
         @Test
@@ -257,17 +263,17 @@ class SetupRpcHandlersTest {
         }
 
         @Test
-        fun `complete does not call markOnboardingComplete when no keys`() = runTest {
-            var completedCalled = false
+        fun `complete leaves onboarding phase unchanged when no keys`() = runTest {
             val cm = createConfigManager()
-            val router = setupRouter(cm, onComplete = { completedCalled = true })
+            val router = setupRouter(cm)
 
             try {
                 router.route("setup.complete", JsonObject(emptyMap()), "test-session")
             } catch (_: IllegalArgumentException) {
                 // expected
             }
-            completedCalled shouldBe false
+            val status = router.route("setup.status", JsonObject(emptyMap()), "test-session")
+            status["onboardingPhase"]!!.jsonPrimitive.content shouldBe "BOOTSTRAP_SEEDED"
         }
     }
 }

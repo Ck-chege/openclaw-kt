@@ -1,18 +1,29 @@
 package com.kclaw.gateway.config
 
-import com.typesafe.config.ConfigFactory
-import com.typesafe.config.ConfigException
+import com.kclaw.gateway.AppPaths
 import io.github.oshai.kotlinlogging.KotlinLogging
 import kotlinx.coroutines.*
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.serialization.json.Json
 import java.nio.file.FileSystems
 import java.nio.file.Path
 import java.nio.file.StandardWatchEventKinds
 import kotlin.io.path.exists
+import kotlin.io.path.readText
 
 private val logger = KotlinLogging.logger {}
+
+/** JSON decoder configured for user-facing config files (comments + trailing commas). */
+internal val configJson = Json {
+    ignoreUnknownKeys = true
+    allowComments = true
+    allowTrailingComma = true
+    isLenient = true
+    encodeDefaults = false
+    coerceInputValues = true
+}
 
 /** Returns dotted paths that changed between two configs. */
 fun diffConfigPaths(prev: GatewayConfig, next: GatewayConfig): List<String> {
@@ -52,40 +63,51 @@ fun buildReloadPlan(changedPaths: List<String>): GatewayReloadPlan {
  * Manages configuration loading, hot-reload via file watching, and reactive updates.
  *
  * Consumers observe [config] to receive configuration changes reactively.
- * Reads HOCON from [configPath], resolves `${ENV_VAR}` substitutions, and maps
- * to [GatewayConfig] data classes. Missing file → defaults. Invalid file → fail-fast on startup.
+ * Reads JSON from [configPath] (with comments and trailing commas allowed),
+ * deserializes to [GatewayConfig] data classes via kotlinx-serialization.
+ * Missing file → defaults. Invalid file → fail-fast on startup.
  */
+
+
 class ConfigManager(private val configPath: Path) {
+
     private val _config = MutableStateFlow(GatewayConfig())
     val config: StateFlow<GatewayConfig> = _config.asStateFlow()
 
     private var watcherJob: Job? = null
 
     /**
-     * Parse the HOCON config file at [configPath].
-     * Returns defaults if the file does not exist.
-     * Throws [ConfigError.FileParseError] on syntax/substitution errors.
+     * Parse the JSON config file at [configPath].
+     * Returns defaults if the file does not exist or is blank.
+     * Throws [ConfigError.FileParseError] on syntax errors.
      * Throws [ConfigError.InvalidValue] on type mismatches.
      */
     private fun parseConfigFile(): GatewayConfig {
         if (!configPath.exists()) {
             logger.info { "Config file not found at $configPath — using defaults" }
+            val config = GatewayConfig()
+            configPath.toFile().writeText(config.toJsonString())
+            logger.info { "Config file written to $configPath" }
+            return config
+        }
+
+        val text = configPath.readText().trim()
+        if (text.isEmpty()) {
+            logger.info { "Config file at $configPath is empty — using defaults" }
             return GatewayConfig()
         }
 
         return try {
-            val parsed = ConfigFactory.parseFile(configPath.toFile())
-            val resolved = parsed.resolve()
-            resolved.toGatewayConfig()
-        } catch (e: ConfigError) {
-            throw e // already a structured error
-        } catch (e: ConfigException) {
+            configJson.decodeFromString<GatewayConfig>(text)
+        } catch (e: kotlinx.serialization.SerializationException) {
+            throw ConfigError.FileParseError(configPath, e)
+        } catch (e: IllegalArgumentException) {
             throw ConfigError.FileParseError(configPath, e)
         }
     }
 
     /**
-     * Load configuration from the HOCON file at [configPath].
+     * Load configuration from the JSON file at [configPath].
      * Updates the [config] StateFlow. Throws on error (fail-fast at startup).
      */
     fun load(): GatewayConfig {

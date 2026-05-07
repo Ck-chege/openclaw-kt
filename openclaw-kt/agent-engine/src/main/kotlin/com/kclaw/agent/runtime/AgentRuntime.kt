@@ -31,6 +31,7 @@ import com.kclaw.protocol.identifiers.SessionKey
 import com.kclaw.session.SessionMessage
 import com.kclaw.session.SessionStore
 import io.github.oshai.kotlinlogging.KotlinLogging
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.channelFlow
 import kotlinx.coroutines.flow.collect
@@ -225,10 +226,11 @@ class AgentRuntime(
                     }
 
                     onToolCallStarting { ctx ->
-                        bridge.onToolCallStart(
-                            ctx.toolName,
-                            ctx.toolArgs
-                        )
+                        // Koog 0.7+ returns org.json.JSONObject; convert to kotlinx JsonObject
+                        val argsJson = kotlinx.serialization.json.Json.parseToJsonElement(
+                            ctx.toolArgs.toString()
+                        ) as? JsonObject ?: JsonObject(emptyMap())
+                        bridge.onToolCallStart(ctx.toolName, argsJson)
                     }
 
                     onToolCallCompleted { ctx ->
@@ -279,6 +281,9 @@ class AgentRuntime(
             )
             send(completeEvent)
 
+        } catch (e: CancellationException) {
+            logger.info { "Agent run cancelled: session=${sessionKey.raw}" }
+            throw e
         } catch (e: Exception) {
             logger.error(e) { "Agent run failed: session=${sessionKey.raw}" }
             send(AgentEvent.RunError(e.message ?: "Unknown error", "RUN_ERROR"))

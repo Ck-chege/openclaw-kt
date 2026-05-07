@@ -25,7 +25,7 @@ class ConfigManagerTest {
 
     @Test
     fun `missing file returns defaults`() {
-        val nonExistent = tempDir.resolve("does-not-exist.conf")
+        val nonExistent = tempDir.resolve("does-not-exist.json")
         val manager = ConfigManager(nonExistent)
 
         val config = manager.load()
@@ -35,18 +35,20 @@ class ConfigManagerTest {
 
     @Test
     fun `valid file parses correctly`() {
-        val configFile = tempDir.resolve("kclaw.conf").createFile()
+        val configFile = tempDir.resolve("kclaw.json").createFile()
         configFile.writeText("""
-            gateway {
-                port = 7777
-                bind = "0.0.0.0"
-                auth {
-                    token = "test-token"
-                }
-            }
-            agents {
-                defaults {
-                    model = "openai:gpt-4o"
+            {
+                "gateway": {
+                    "port": 7777,
+                    "bind": "0.0.0.0",
+                    "auth": {
+                        "token": "test-token"
+                    }
+                },
+                "agents": {
+                    "defaults": {
+                        "model": "openai:gpt-4o"
+                    }
                 }
             }
         """.trimIndent())
@@ -61,9 +63,9 @@ class ConfigManagerTest {
     }
 
     @Test
-    fun `invalid HOCON syntax throws FileParseError`() {
-        val configFile = tempDir.resolve("bad.conf").createFile()
-        configFile.writeText("this is not { valid hocon >>>")
+    fun `invalid JSON syntax throws FileParseError`() {
+        val configFile = tempDir.resolve("bad.json").createFile()
+        configFile.writeText("this is not { valid json >>>")
 
         val manager = ConfigManager(configFile)
 
@@ -74,10 +76,10 @@ class ConfigManagerTest {
 
     @Test
     fun `reload updates StateFlow with new values`() {
-        val configFile = tempDir.resolve("kclaw.conf").createFile()
+        val configFile = tempDir.resolve("kclaw.json").createFile()
         configFile.writeText("""
-            gateway {
-                port = 8000
+            {
+                "gateway": { "port": 8000 }
             }
         """.trimIndent())
 
@@ -87,8 +89,8 @@ class ConfigManagerTest {
 
         // Modify the config file
         configFile.writeText("""
-            gateway {
-                port = 9000
+            {
+                "gateway": { "port": 9000 }
             }
         """.trimIndent())
 
@@ -98,10 +100,10 @@ class ConfigManagerTest {
 
     @Test
     fun `reload on parse error retains previous config`() {
-        val configFile = tempDir.resolve("kclaw.conf").createFile()
+        val configFile = tempDir.resolve("kclaw.json").createFile()
         configFile.writeText("""
-            gateway {
-                port = 5555
+            {
+                "gateway": { "port": 5555 }
             }
         """.trimIndent())
 
@@ -122,10 +124,10 @@ class ConfigManagerTest {
 
         @Test
         fun `load updates StateFlow value`() {
-            val configFile = tempDir.resolve("kclaw.conf").createFile()
+            val configFile = tempDir.resolve("kclaw.json").createFile()
             configFile.writeText("""
-                gateway {
-                    port = 4444
+                {
+                    "gateway": { "port": 4444 }
                 }
             """.trimIndent())
 
@@ -139,24 +141,26 @@ class ConfigManagerTest {
         }
 
         @Test
-        fun `load with invalid value throws InvalidValue not FileParseError`() {
-            val configFile = tempDir.resolve("kclaw.conf").createFile()
+        fun `load with invalid JSON throws FileParseError`() {
+            val configFile = tempDir.resolve("kclaw.json").createFile()
             configFile.writeText("""
-                gateway {
-                    port = "not-a-number"
+                {
+                    "gateway": {
+                        "port": "not-a-number"
+                    }
                 }
             """.trimIndent())
 
             val manager = ConfigManager(configFile)
 
-            shouldThrow<ConfigError.InvalidValue> {
+            shouldThrow<ConfigError.FileParseError> {
                 manager.load()
             }
         }
 
         @Test
         fun `empty file returns defaults`() {
-            val configFile = tempDir.resolve("kclaw.conf").createFile()
+            val configFile = tempDir.resolve("kclaw.json").createFile()
             configFile.writeText("")
 
             val manager = ConfigManager(configFile)
@@ -167,10 +171,10 @@ class ConfigManagerTest {
 
         @Test
         fun `load return value matches StateFlow value`() {
-            val configFile = tempDir.resolve("kclaw.conf").createFile()
+            val configFile = tempDir.resolve("kclaw.json").createFile()
             configFile.writeText("""
-                gateway {
-                    bind = "0.0.0.0"
+                {
+                    "gateway": { "bind": "0.0.0.0" }
                 }
             """.trimIndent())
 
@@ -185,11 +189,11 @@ class ConfigManagerTest {
     inner class ReloadEdgeCases {
 
         @Test
-        fun `reload with InvalidValue retains previous config`() {
-            val configFile = tempDir.resolve("kclaw.conf").createFile()
+        fun `reload with invalid JSON retains previous config`() {
+            val configFile = tempDir.resolve("kclaw.json").createFile()
             configFile.writeText("""
-                gateway {
-                    port = 6666
+                {
+                    "gateway": { "port": 6666 }
                 }
             """.trimIndent())
 
@@ -197,12 +201,8 @@ class ConfigManagerTest {
             manager.load()
             manager.config.value.gateway.port shouldBe 6666
 
-            // Write a type error (not a syntax error)
-            configFile.writeText("""
-                gateway {
-                    port = "invalid"
-                }
-            """.trimIndent())
+            // Write invalid JSON
+            configFile.writeText("""{ "gateway": { "port": ??? } }""")
 
             manager.reload()
             // Previous config retained
@@ -211,10 +211,10 @@ class ConfigManagerTest {
 
         @Test
         fun `reload with deleted file retains defaults gracefully`() {
-            val configFile = tempDir.resolve("kclaw.conf").createFile()
+            val configFile = tempDir.resolve("kclaw.json").createFile()
             configFile.writeText("""
-                gateway {
-                    port = 3333
+                {
+                    "gateway": { "port": 3333 }
                 }
             """.trimIndent())
 
@@ -232,9 +232,9 @@ class ConfigManagerTest {
 
         @Test
         fun `StateFlow collectors are notified on reload`() = runBlocking {
-            val configFile = tempDir.resolve("kclaw.conf").createFile()
+            val configFile = tempDir.resolve("kclaw.json").createFile()
             configFile.writeText("""
-                gateway { port = 1111 }
+                { "gateway": { "port": 1111 } }
             """.trimIndent())
 
             val manager = ConfigManager(configFile)
@@ -245,7 +245,7 @@ class ConfigManagerTest {
             current.gateway.port shouldBe 1111
 
             configFile.writeText("""
-                gateway { port = 2222 }
+                { "gateway": { "port": 2222 } }
             """.trimIndent())
 
             manager.reload()
@@ -259,10 +259,12 @@ class ConfigManagerTest {
 
         @Test
         fun `startFileWatcher skips when mode is OFF`() {
-            val configFile = tempDir.resolve("kclaw.conf").createFile()
+            val configFile = tempDir.resolve("kclaw.json").createFile()
             configFile.writeText("""
-                gateway {
-                    reload { mode = "OFF" }
+                {
+                    "gateway": {
+                        "reload": { "mode": "OFF" }
+                    }
                 }
             """.trimIndent())
 
@@ -284,10 +286,12 @@ class ConfigManagerTest {
 
         @Test
         fun `startFileWatcher skips when mode is RESTART`() {
-            val configFile = tempDir.resolve("kclaw.conf").createFile()
+            val configFile = tempDir.resolve("kclaw.json").createFile()
             configFile.writeText("""
-                gateway {
-                    reload { mode = "RESTART" }
+                {
+                    "gateway": {
+                        "reload": { "mode": "RESTART" }
+                    }
                 }
             """.trimIndent())
 
@@ -307,7 +311,7 @@ class ConfigManagerTest {
 
         @Test
         fun `stopFileWatcher is idempotent`() {
-            val nonExistent = tempDir.resolve("nope.conf")
+            val nonExistent = tempDir.resolve("nope.json")
             val manager = ConfigManager(nonExistent)
             manager.load()
 
@@ -321,9 +325,9 @@ class ConfigManagerTest {
 
         @Test
         fun `file watcher detects modification and triggers reload`() = runBlocking {
-            val configFile = tempDir.resolve("kclaw.conf").createFile()
+            val configFile = tempDir.resolve("kclaw.json").createFile()
             configFile.writeText("""
-                gateway { port = 10000 }
+                { "gateway": { "port": 10000 } }
             """.trimIndent())
 
             val manager = ConfigManager(configFile)
@@ -336,7 +340,7 @@ class ConfigManagerTest {
 
                 // Modify the file
                 configFile.writeText("""
-                    gateway { port = 20000 }
+                    { "gateway": { "port": 20000 } }
                 """.trimIndent())
 
                 // Wait for the watcher to pick up the change (debounce is 300ms)
@@ -356,8 +360,8 @@ class ConfigManagerTest {
 
         @Test
         fun `file watcher start and stop lifecycle works cleanly`() {
-            val configFile = tempDir.resolve("kclaw.conf").createFile()
-            configFile.writeText("")
+            val configFile = tempDir.resolve("kclaw.json").createFile()
+            configFile.writeText("{}")
 
             val manager = ConfigManager(configFile)
             manager.load()
@@ -422,9 +426,9 @@ class ConfigManagerTest {
 
         @Test
         fun `reload skips update when config is unchanged`() {
-            val configFile = tempDir.resolve("kclaw.conf").createFile()
+            val configFile = tempDir.resolve("kclaw.json").createFile()
             configFile.writeText("""
-                gateway { port = 7000 }
+                { "gateway": { "port": 7000 } }
             """.trimIndent())
 
             val manager = ConfigManager(configFile)
@@ -438,16 +442,16 @@ class ConfigManagerTest {
 
         @Test
         fun `reload calls onRestartRequired for port change`() {
-            val configFile = tempDir.resolve("kclaw.conf").createFile()
+            val configFile = tempDir.resolve("kclaw.json").createFile()
             configFile.writeText("""
-                gateway { port = 7000 }
+                { "gateway": { "port": 7000 } }
             """.trimIndent())
 
             val manager = ConfigManager(configFile)
             manager.load()
 
             configFile.writeText("""
-                gateway { port = 8000 }
+                { "gateway": { "port": 8000 } }
             """.trimIndent())
 
             var capturedPlan: GatewayReloadPlan? = null

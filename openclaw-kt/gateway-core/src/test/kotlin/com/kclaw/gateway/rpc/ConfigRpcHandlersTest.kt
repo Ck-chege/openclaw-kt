@@ -25,7 +25,7 @@ class ConfigRpcHandlersTest {
 
     @BeforeEach
     fun setup() {
-        val configPath = tempDir.resolve("kclaw.conf")
+        val configPath = tempDir.resolve("kclaw.json")
         ConfigWriter(configPath).write(GatewayConfig())
         configManager = ConfigManager(configPath)
         configManager.load()

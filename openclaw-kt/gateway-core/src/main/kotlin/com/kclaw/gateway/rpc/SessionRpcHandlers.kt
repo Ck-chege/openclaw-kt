@@ -20,6 +20,7 @@ private val json = Json {
  * Methods:
  * - `sessions.list` — list all sessions
  * - `sessions.get` — get metadata for a session by key
+ * - `sessions.ensure` — create a session if it does not already exist
  * - `sessions.history` — get message history for a session
  * - `sessions.delete` — permanently delete a session
  * - `sessions.reset` — clear transcript, keep session entry
@@ -50,12 +51,28 @@ fun registerSessionHandlers(router: RpcRouter, sessionStore: SessionStore) {
         }
     }
 
+    // sessions.ensure -- Idempotently create a session for a key
+    router.register("sessions.ensure") { params, _ ->
+        logger.debug { "Handling sessions.ensure" }
+        val key = SessionKey(params.requireString("key"))
+        val existing = sessionStore.getSession(key)
+        val session = existing ?: sessionStore.createSession(key, key.agentId, key.channel)
+        buildJsonObject {
+            put("created", JsonPrimitive(existing == null))
+            put("session", json.encodeToJsonElement<SessionMeta>(session))
+        }
+    }
+
     // sessions.history -- Return message history for a session
     router.register("sessions.history") { params, _ ->
         logger.debug { "Handling sessions.history" }
-        val key = params.requireString("key")
+        val key = SessionKey(params.requireString("key"))
         val limit = params["limit"]?.jsonPrimitive?.intOrNull
-        val messages = sessionStore.getHistory(SessionKey(key), limit)
+        val messages = if (sessionStore.getSession(key) == null) {
+            emptyList()
+        } else {
+            sessionStore.getHistory(key, limit)
+        }
         buildJsonObject {
             put("messages", json.encodeToJsonElement<List<SessionMessage>>(messages))
             put("count", JsonPrimitive(messages.size))

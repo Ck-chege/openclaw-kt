@@ -10,7 +10,7 @@ class ConfigErrorTest {
 
     @Test
     fun `FileParseError carries path and cause`() {
-        val path = Path.of("/home/user/.openclaw/kclaw.conf")
+        val path = Path.of("/home/user/.kclaw/kclaw.json")
         val cause = RuntimeException("Unexpected character at line 3")
 
         val error = ConfigError.FileParseError(path, cause)

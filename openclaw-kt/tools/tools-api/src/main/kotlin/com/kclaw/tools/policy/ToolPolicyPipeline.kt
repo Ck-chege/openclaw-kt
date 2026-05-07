@@ -112,6 +112,11 @@ class ToolPolicyPipeline {
             return ToolPermission.Denied("Tool '$toolName' requires owner access")
         }
 
+        if (toolName in DangerousTools.APPROVAL_REQUIRED) {
+            logger.debug { "Tool '$toolName' requires explicit approval" }
+            return ToolPermission.RequiresApproval("Tool '$toolName' requires explicit approval")
+        }
+
         return ToolPermission.Allowed
     }
 

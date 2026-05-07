@@ -34,7 +34,7 @@ class RetryingLlmClientFactoryTest {
         configField.get(client) shouldBe RetryConfig.PRODUCTION
     }
 
-    private class FakeLlmClient : LLMClient {
+    private class FakeLlmClient : LLMClient() {
         override suspend fun execute(
             prompt: Prompt,
             model: LLModel,

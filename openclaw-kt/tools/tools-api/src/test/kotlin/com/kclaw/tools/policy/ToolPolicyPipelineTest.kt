@@ -16,9 +16,9 @@ class ToolPolicyPipelineTest {
     inner class ProfileStage {
 
         @Test
-        fun `full profile allows all tools`() {
+        fun `full profile requires approval for exec`() {
             val result = pipeline.evaluate("exec", ToolsConfig(profile = "full"))
-            result shouldBe ToolPermission.Allowed
+            result.shouldBeInstanceOf<ToolPermission.RequiresApproval>()
         }
 
         @Test
@@ -60,7 +60,7 @@ class ToolPolicyPipelineTest {
         @Test
         fun `empty allow list does not restrict`() {
             val result = pipeline.evaluate("exec", ToolsConfig(allow = emptyList()))
-            result shouldBe ToolPermission.Allowed
+            result.shouldBeInstanceOf<ToolPermission.RequiresApproval>()
         }
 
         @Test
@@ -87,7 +87,7 @@ class ToolPolicyPipelineTest {
         fun `allow list with group reference expands correctly`() {
             val config = ToolsConfig(allow = listOf("group:fs"))
             pipeline.evaluate("read", config) shouldBe ToolPermission.Allowed
-            pipeline.evaluate("write", config) shouldBe ToolPermission.Allowed
+            pipeline.evaluate("write", config).shouldBeInstanceOf<ToolPermission.RequiresApproval>()
             pipeline.evaluate("exec", config).shouldBeInstanceOf<ToolPermission.Denied>()
         }
     }
@@ -101,7 +101,7 @@ class ToolPolicyPipelineTest {
                 "exec", defaultConfig,
                 callerContext = CallerContext(provider = "anthropic")
             )
-            result shouldBe ToolPermission.Allowed
+            result.shouldBeInstanceOf<ToolPermission.RequiresApproval>()
         }
 
         @Test
@@ -125,7 +125,7 @@ class ToolPolicyPipelineTest {
                 "exec", config,
                 callerContext = CallerContext(provider = "anthropic")
             )
-            result shouldBe ToolPermission.Allowed
+            result.shouldBeInstanceOf<ToolPermission.RequiresApproval>()
         }
     }
 
@@ -135,7 +135,7 @@ class ToolPolicyPipelineTest {
         @Test
         fun `null overrides passes through`() {
             val result = pipeline.evaluate("exec", defaultConfig, agentToolOverrides = null)
-            result shouldBe ToolPermission.Allowed
+            result.shouldBeInstanceOf<ToolPermission.RequiresApproval>()
         }
 
         @Test
@@ -167,7 +167,7 @@ class ToolPolicyPipelineTest {
         @Test
         fun `disabled sandbox passes through`() {
             val config = ToolsConfig(sandbox = SandboxToolConfig(enabled = false, deny = listOf("exec")))
-            pipeline.evaluate("exec", config) shouldBe ToolPermission.Allowed
+            pipeline.evaluate("exec", config).shouldBeInstanceOf<ToolPermission.RequiresApproval>()
         }
 
         @Test
@@ -213,6 +213,12 @@ class ToolPolicyPipelineTest {
         }
 
         @Test
+        fun `sessions_send requires approval for owner`() {
+            pipeline.evaluate("sessions_send", defaultConfig, callerContext = CallerContext(isOwner = true))
+                .shouldBeInstanceOf<ToolPermission.RequiresApproval>()
+        }
+
+        @Test
         fun `sessions_spawn denied for non-owner`() {
             pipeline.evaluate("sessions_spawn", defaultConfig, callerContext = CallerContext(isOwner = false))
                 .shouldBeInstanceOf<ToolPermission.Denied>()
@@ -239,7 +245,7 @@ class ToolPolicyPipelineTest {
             val config = ToolsConfig(profile = "safe")
             val all = setOf("read", "write", "edit", "exec", "process")
             val allowed = pipeline.filterAllowed(all, config)
-            allowed shouldBe setOf("read", "write", "edit")
+            allowed shouldBe setOf("read")
         }
     }
 }

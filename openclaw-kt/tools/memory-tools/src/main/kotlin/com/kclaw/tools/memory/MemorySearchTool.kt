@@ -28,7 +28,7 @@ object MemorySearchTool : SimpleTool<MemorySearchTool.Args>(
 
     override suspend fun execute(args: Args): String {
         val manager = memoryManager
-            ?: return "Memory system is not enabled. Configure memory in kclaw.conf to use this tool."
+            ?: return "Memory system is not enabled. Configure memory in kclaw.json to use this tool."
 
         if (args.query.isBlank()) {
             return "Error: Search query cannot be empty."

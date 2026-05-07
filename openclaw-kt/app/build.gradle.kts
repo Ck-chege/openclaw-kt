@@ -31,6 +31,7 @@ dependencies {
 
     implementation(libs.bundles.ktor.server)
     implementation(libs.kotlinx.coroutines.core)
+    implementation(libs.kotlinx.datetime)
     implementation(libs.bundles.koog)
     implementation(libs.bundles.logging)
 
